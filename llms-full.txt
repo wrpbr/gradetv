@@ -1,0 +1,3823 @@
+# Grade — referência completa da API
+
+> Gerada do catálogo em https://gradetv.net · build `dbad45cb`
+> 83 endpoints · 88 estruturas
+> Índice curto: https://gradetv.net/llms.txt · Spec: https://gradetv.net/openapi.json · MCP: https://gradetv.net/mcp
+
+Diretório de transmissões públicas (fonte iptv-org) e galeria pessoal com URL estável por pasta.
+Não armazena nem retransmite vídeo. O M3U e a API apontam para GET /api/s/:id (conta o play uma vez por pessoa, canal e dia, e devolve a playlist da origem com URI absoluta); os segmentos vêm da origem, no browser e no VLC.
+Produtores: https://gradetv.net/produtores e GET https://gradetv.net/api/producers — transmissão autorizada sob consulta. Informações e contato, sem ativação. Envie o projeto para contato@gradetv.net ou POST /api/contact (Turnstile humano; x402/crédito para agente).
+
+## Como ler
+
+- Cada endpoint traz caminho, auth, parâmetros, corpo, estrutura da resposta, erros e uma chamada que roda.
+- `Pagina<Canal>` é referência: os campos estão em **Estruturas**, no fim, uma vez só.
+- `(opcional)` num campo quer dizer que ele pode não vir; `(pode ser null)` quer dizer que vem com valor nulo.
+- Fatie o que precisa: `https://gradetv.net/llms-full.txt?prefix=/api/` devolve só aquele ramo.
+
+## Autenticação
+
+- `credito` — Token de crédito em `Authorization: Bearer cred_…` (ou header `X-Credito`). Não é conta: é portador de saldo.
+- `none` — Público, sem credencial.
+- `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+- `session` — Sessão de usuário: `Authorization: Bearer sess_…` (obtida por OTP de e-mail).
+- `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+## Endpoints
+
+## Descoberta
+
+### `GET /okf/:arquivo`
+
+Bundle OKF (Open Knowledge Format v0.1): markdown com frontmatter para o agente ler o produto inteiro sem parsear HTML.
+
+- **URL:** `https://gradetv.net/okf/:arquivo`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `arquivo` (string, obrigatório) — `index.md`, `sobre.md`, `api.md` ou `faq.md`. Ex.: `index.md`.
+
+**Resposta `200`**
+
+`text/markdown`. Comece por `/okf/index.md`, que lista o bundle.
+
+**Erros**
+
+- `404` — Arquivo fora do bundle.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/okf/index.md
+```
+
+### `GET /.well-known/:arquivo`
+
+Descoberta de máquina antes da home: `api-catalog` (RFC 9727, linkset com a API e o MCP), `security.txt` (RFC 9116) e `mcp-registry-auth` (chave do registro oficial de MCP).
+
+- **URL:** `https://gradetv.net/.well-known/:arquivo`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `arquivo` (string, obrigatório) — `api-catalog`, `security.txt`, `mcp-registry-auth` ou `apis.json`. Ex.: `api-catalog`.
+
+**Resposta `200`**
+
+`application/linkset+json` no api-catalog; `text/plain` nos outros dois.
+
+**Erros**
+
+- `404` — Nome fora dos quatro publicados.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/.well-known/api-catalog
+```
+
+### `GET /apis.json`
+
+APIs.json (apisjson.org, 0.19): o índice que o APIs.io colhe — a API, o MCP, OpenAPI, guia e bundle OKF num arquivo só. Também em `/.well-known/apis.json`.
+
+- **URL:** `https://gradetv.net/apis.json`
+- **Auth:** `none` — Público, sem credencial.
+
+**Resposta `200`**
+
+`application/json` no formato APIs.json 0.19: `apis[]` com `baseURL`, `humanURL` e `properties[]`.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/apis.json
+```
+
+### `GET /api/`
+
+Índice auto-descrito da API inteira, com os idiomas e as páginas HTML de cada um.
+
+- **URL:** `https://gradetv.net/api/`
+- **Auth:** `none` — Público, sem credencial.
+
+**Resposta `200`**
+
+- `name` (string) — Nome do produto.
+- `description` (string) — O que o produto faz, em uma frase.
+- `locales` (object) — Idiomas atendidos e o caminho de cada página em cada um.
+- `auth` (object) — Cada modo de autenticação e como obtê-lo.
+- `docs` (object) — Links para llms.txt, llms-full.txt, openapi.json, MCP e a UI.
+- `endpoints` (object[]) — Todo endpoint com método, caminho, auth, URL absoluta e o que devolve.
+- `quota` (object) — O que é grátis, o que custa e como pagar — antes de você gastar chamada.
+- `mcp` (object) — Endereço e transporte do servidor MCP.
+- `quickstart` (string[]) — As quatro chamadas que levam do zero à biblioteca.
+
+### `GET /api/health`
+
+Liveness e o commit publicado agora — é como o smoke espera o próprio deploy.
+
+- **URL:** `https://gradetv.net/api/health`
+- **Auth:** `none` — Público, sem credencial.
+
+**Resposta `200`**
+
+Estrutura: `Saude`.
+
+- `ok` (bool) — Sempre `true` quando o Worker responde.
+- `app` (string) — Nome do produto.
+- `build` (string) — Commit publicado; o CI passa o SHA curto no deploy.
+- `ts` (string) — Momento da resposta (UTC, ISO-8601).
+- `catalog` (FrescorCatalogo) — Idade do catálogo: `synced_at` da última recarga e se passou do limite de 2 dias (o smoke reprova). → ver `FrescorCatalogo` em **Estruturas**.
+- `sources` (object) — Uma entrada por fonte do catálogo, pelo nome (`iptv-org`, o tronco; as demais conforme entram): `fetched_at`, `sha256`, `itens`, `age_hours`, `limit_days`, `stale` (passou do limite ou a recarga usou o snapshot anterior), `ausente` (saiu sem a fonte). Só o tronco velho reprova o smoke.
+
+### `POST /mcp`
+
+Servidor MCP por HTTP (Streamable HTTP, JSON-RPC 2.0) — pluga no cliente sem instalar nada.
+
+As tools são as operações deste mesmo catálogo; o MCP não tem backend próprio. `GET /mcp` devolve o cartão do servidor.
+
+- **URL:** `https://gradetv.net/mcp`
+- **Auth:** `none` — Público, sem credencial.
+- Credencial vai nos headers de sempre (X-Guest-Token, Authorization, X-PAYMENT) e é repassada à API.
+- Cota estourada chega como 402 com accepts[] dentro do resultado da tool — pague e repita.
+
+**Resposta `200`**
+
+Resposta JSON-RPC 2.0 (`initialize`, `tools/list` ou `tools/call`).
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/mcp -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+## Catálogo
+
+### `GET /api/channels`
+
+Busca paginada do catálogo público, com as facetas de categoria da busca atual.
+
+É a porta de entrada do produto. A resposta varia por navegador, sistema e país de quem pede — cada canal traz `social.your_fails`, o recorte do SEU ambiente — por isso ela é `Cache-Control: private`.
+
+- **URL:** `https://gradetv.net/api/channels`
+- **Auth:** `none` — Público, sem credencial.
+
+**Query**
+
+- `q` (string) — Texto livre no nome e nos apelidos do canal (busca full-text). Ex.: `globo`.
+- `country` (string) — País do canal, ISO 3166-1 alpha-2. Ex.: `BR`.
+- `category` (string) — ID de categoria do iptv-org. Ex.: `news`.
+- `language` (string) — Idioma do canal, ISO 639-3. Ex.: `por`.
+- `network` (string) — Nome exato da rede/emissora. Ex.: `Globo`.
+- `quality` (string) — Qualidade exata do stream. Ex.: `1080p`.
+- `guide` (bool) — `1` traz só canal com grade de programação (EPG). Padrão: `0`. Valores: `0`, `1`.
+- `subdivision` (string) — Estado/província, código do iptv-org. Ex.: `BR-SP`.
+- `city` (string) — Cidade, código do iptv-org.
+- `nsfw` (bool) — `1` inclui conteúdo adulto; exige consentimento 18+ gravado, senão 403. Padrão: `0`. Valores: `0`, `1`.
+- `playable` (bool) — `0` inclui canal sem stream utilizável conhecido. Padrão: `1`. Valores: `0`, `1`.
+- `sort` (string) — `score` ordena pela saúde medida por terceiro (IPTV Nexus), melhor primeiro; canal não medido vai para o fim. `votes` ordena pelos votos da comunidade do Radio Browser (rádio). `name` é a ordem alfabética. Padrão: `name`. Valores: `name`, `score`, `votes`.
+- `online` (bool) — `1` traz só canal visto online pela fonte (IPTV Nexus para TV, Radio Browser para rádio) nas 48 h anteriores à última recarga do catálogo (`health_ext.online`); com o catálogo parado há mais de 48 h o filtro não devolve ninguém. Padrão: `0`. Valores: `0`, `1`.
+- `kind` (string) — `tv` (padrão) é o catálogo de TV; `radio` são as estações do Radio Browser; `all` junta os dois. Sem `kind`, rádio nunca aparece. Padrão: `tv`. Valores: `tv`, `radio`, `all`.
+- `tag` (string) — Tag da estação de rádio (vocabulário livre do Radio Browser, ex. `mpb`, `news`); veja `GET /api/tags`. Ex.: `mpb`.
+- `limit` (int) — Itens por página. Acima de 50 é silenciosamente reduzido a 50. Padrão: `20`.
+- `offset` (int) — Quantos itens pular. Use `next_offset` da resposta anterior. Padrão: `0`.
+
+**Resposta `200`**
+
+Estrutura: `PaginaDeCanais`.
+
+- `items` (Canal[]) — Os canais desta página, na ordem pedida (`sort`): nome, ou melhor saúde medida primeiro. → ver `Canal` em **Estruturas**.
+- `total` (int) — Canais que casam com o filtro, ignorando a paginação.
+- `limit` (int) — Tamanho de página aplicado (teto de 50).
+- `offset` (int) — Deslocamento aplicado nesta página.
+- `next_offset` (int, pode ser null) — Offset da próxima página; `null` quando acabou.
+- `facets` (FacetasCanal) — Contagem por categoria DENTRO do filtro atual — serve para montar o menu lateral. → ver `FacetasCanal` em **Estruturas**.
+- `filters` (FiltrosCanal) — Os filtros como o servidor os entendeu, já normalizados. → ver `FiltrosCanal` em **Estruturas**.
+
+**Erros**
+
+- `403` — Pediu `nsfw=1` sem consentimento 18+ gravado. A recusa não descreve o canal.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/channels?country=BR&language=por&playable=1&limit=5'
+```
+
+### `GET /api/channels/:id`
+
+Ficha completa de um canal, com os streams já apontando para o nosso hop.
+
+- **URL:** `https://gradetv.net/api/channels/:id`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID do canal no iptv-org, ex. `Globo.br`. Ex.: `Globo.br`.
+
+**Resposta `200`**
+
+Estrutura: `CanalCompleto`.
+
+- `id` (string) — ID estável do iptv-org, ex. `Globo.br`. É a chave em toda a API.
+- `name` (string) — Nome de exibição do canal.
+- `alt_names` (string[]) — Outros nomes pelos quais o canal é conhecido.
+- `country` (string, pode ser null) — País de origem, ISO 3166-1 alpha-2.
+- `categories` (string[]) — IDs de categoria do iptv-org, ex. `news`, `sports`.
+- `category_labels` (string[]) — Os mesmos IDs já traduzidos para exibição.
+- `languages` (string[]) — Idiomas do canal, ISO 639-3.
+- `language_labels` (string[]) — Nomes dos idiomas acima, quando conhecidos.
+- `is_nsfw` (bool) — Conteúdo adulto — exige consentimento 18+ para aparecer.
+- `logo_url` (string, pode ser null) — Logo servido por nós (variante ≤256px), não a origem.
+- `website` (string, pode ser null) — Site oficial do canal.
+- `playable_hint` (bool, opcional) — Se a última verificação achou stream utilizável.
+- `slug` (string, pode ser null) — Identificador legível; é id de API, não URL pública.
+- `network` (string, pode ser null) — Rede/emissora a que o canal pertence.
+- `owners` (string[]) — Quem opera o canal, segundo o iptv-org.
+- `launched` (string, pode ser null) — Data de lançamento (AAAA-MM-DD).
+- `replaced_by` (string, pode ser null) — ID do canal que substituiu este, se foi descontinuado.
+- `feed_name` (string, pode ser null) — Nome do feed quando o canal tem mais de um.
+- `feed_format` (string, pode ser null) — Formato do feed declarado pela fonte.
+- `timezones` (string[]) — Fusos em que o canal transmite.
+- `broadcast_area` (string[]) — Área de cobertura, em códigos do iptv-org.
+- `quality` (string, opcional) — Melhor qualidade conhecida, ex. `1080p`.
+- `has_guide` (bool) — Se existe grade de programação (EPG) para este canal.
+- `guide_site` (string, pode ser null) — Site de onde a grade vem.
+- `guide_lang` (string, pode ser null) — Idioma da grade de programação.
+- `subdivision` (string, pode ser null) — Estado/província, código do iptv-org.
+- `city` (string, pode ser null) — Cidade, código do iptv-org.
+- `kind` (string) — `tv` ou `radio` (estação do Radio Browser).
+- `radio` (Radio, opcional) — Só em estação de rádio: tags, votos, cliques, codec, bitrate e localização. → ver `Radio` em **Estruturas**.
+- `origem` (string) — Fonte que trouxe o canal: `iptv-org` (o tronco) ou uma das listas creditadas em `/sobre`.
+- `guide_now` (GuiaAgora, opcional, pode ser null) — Só na ficha: agora e a seguir na programação de hoje, grabada por nós; `null` sem guia fresca. → ver `GuiaAgora` em **Estruturas**.
+- `health_ext` (SaudeMedida, pode ser null) — Saúde medida por terceiro (IPTV Nexus); `null` quando o canal não foi medido. → ver `SaudeMedida` em **Estruturas**.
+- `social` (Social, opcional) — Contadores da comunidade; ausente nas páginas HTML de SEO. → ver `Social` em **Estruturas**.
+- `api` (string) — URL absoluta da ficha deste canal.
+- `streams` (Stream[]) — Transmissões conhecidas, com a URL já apontando para o nosso hop. → ver `Stream` em **Estruturas**.
+- `_links` (LinksCanal) — Esta ficha, a mesma coisa na interface humana e o índice da API. → ver `LinksCanal` em **Estruturas**.
+
+**Erros**
+
+- `403` — Canal adulto sem consentimento 18+ gravado.
+- `404` — Canal não existe no catálogo.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/channels/Globo.br
+```
+
+### `GET /api/channels/:id/health`
+
+Por que o canal falha, para quem e onde — inclui geo-bloqueio, latência por região e o veredito de quem está chamando.
+
+É o que separa 'o canal está fora do ar' de 'o canal está bloqueado no seu país'. `geo` diz se é restrição regional ou falha geral (com os países), `regions[]` traz sucesso/falha por país, `latency[]` a velocidade de abertura medida no hop por país, e `pra_voce` resume tudo para o país de quem chama. Sem relato da comunidade (`POST /api/play-report`) o painel fica vazio.
+
+- **URL:** `https://gradetv.net/api/channels/:id/health`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID do canal no iptv-org. Ex.: `Globo.br`.
+
+**Resposta `200`**
+
+Estrutura: `SaudeCanal`.
+
+- `channel_id` (string) — Canal a que esta saúde se refere.
+- `plays` (int) — Relatos de sucesso, no mundo todo.
+- `fails` (int) — Relatos de falha, no mundo todo.
+- `favorites` (int) — Quantas pessoas favoritaram o canal.
+- `comments` (int) — Comentários públicos no canal.
+- `health` (int, pode ser null) — Percentual de sucesso; `null` com menos de `min_relatos`.
+- `last_ok_at` (string, pode ser null) — Último relato de sucesso (UTC).
+- `last_fail_at` (string, pode ser null) — Último relato de falha (UTC).
+- `last_fail_code` (string, pode ser null) — Código da falha mais recente.
+- `min_relatos` (int) — Quantos relatos são necessários antes de calcular `health`.
+- `reasons` (MotivoFalha[]) — Por que falhou, do motivo mais comum para o menos. → ver `MotivoFalha` em **Estruturas**.
+- `environments` (Ambiente[]) — O mesmo canal por navegador, sistema e país. → ver `Ambiente` em **Estruturas**.
+- `your_environment` (Ambiente) — O recorte de QUEM ESTÁ CHAMANDO, deduzido do User-Agent e da borda. → ver `Ambiente` em **Estruturas**.
+- `regions` (RegiaoSaude[]) — O mesmo canal agregado por PAÍS — onde falha e onde funciona. → ver `RegiaoSaude` em **Estruturas**.
+- `geo` (GeoCanal) — Veredito do bloqueio: geo-restrito (falha numas regiões, funciona noutras) ou fora do ar (falha em todas). → ver `GeoCanal` em **Estruturas**.
+- `latency` (LatenciaPais[]) — Quão rápido a playlist abre, por país — medido no hop `/api/s/:id`. → ver `LatenciaPais` em **Estruturas**.
+- `your_country` (RegiaoSaude) — O recorte do PAÍS de quem está chamando, com a latência da borda dele. → ver `RegiaoSaude` em **Estruturas**.
+- `pra_voce` (string) — Veredito final para quem está chamando: `geo_bloqueado`, `lenta`, `instavel`, `boa` ou `sem_dado`.
+- `codes` (string[]) — Todos os códigos de falha que o produto reconhece.
+- `_links` (LinksSaude) — Esta saúde, o canal e onde relatar. → ver `LinksSaude` em **Estruturas**.
+
+**Erros**
+
+- `404` — Canal não existe no catálogo.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/channels/Globo.br/health
+```
+
+### `GET /api/channels/:id/guia`
+
+Programação de hoje do canal, grabada por nós: o que está no ar agora e o que vem a seguir.
+
+Vem do grabber do c3 (iptv-org/epg em sites como mi.tv e meuguia.tv) e vale por dois dias. Só canal com guia (`guide=1`) tem; a ficha já traz o resumo em `guide_now`. Nada disto vira página indexável.
+
+- **URL:** `https://gradetv.net/api/channels/:id/guia`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID do canal no iptv-org. Ex.: `RecordNews.br`.
+
+**Resposta `200`**
+
+Estrutura: `GuiaDoDia`.
+
+- `channel_id` (string) — ID do canal no iptv-org.
+- `day` (string) — Dia grabado, YYYY-MM-DD.
+- `site` (string, pode ser null) — Site de programação de origem.
+- `agora` (Programa, pode ser null) — O programa no ar neste instante. → ver `Programa` em **Estruturas**.
+- `a_seguir` (Programa, pode ser null) — O próximo programa. → ver `Programa` em **Estruturas**.
+- `programas` (Programa[]) — Todos os programas do dia, em ordem (até 200). → ver `Programa` em **Estruturas**.
+
+**Erros**
+
+- `404` — Canal sem guia do dia (ou com guia velha).
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/channels/RecordNews.br/guia
+```
+
+### `GET /api/geo`
+
+País e idioma sugeridos pela borda da Cloudflare para quem está chamando.
+
+- **URL:** `https://gradetv.net/api/geo`
+- **Auth:** `none` — Público, sem credencial.
+
+**Resposta `200`**
+
+Estrutura: `Geo`.
+
+- `country` (string) — País a usar; cai em `BR` quando a borda não informa.
+- `detected` (string, pode ser null) — O que a borda realmente detectou; `null` se nada.
+- `language` (string) — Idioma a usar; cai em `por` sem detecção.
+- `language_detected` (string, pode ser null) — Idioma realmente detectado.
+- `source` (string) — `cf` quando veio da borda, `fallback` quando é o padrão.
+- `api` (string) — URL absoluta desta rota.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/geo
+```
+
+## Facetas
+
+### `GET /api/countries`
+
+Países que têm canal tocável, com a contagem e a bandeira de cada um.
+
+- **URL:** `https://gradetv.net/api/countries`
+- **Auth:** `none` — Público, sem credencial.
+
+**Query**
+
+- `kind` (string) — `tv` (padrão) conta canais de TV; `radio` conta estações do Radio Browser; `all` junta os dois. Padrão: `tv`. Valores: `tv`, `radio`, `all`.
+
+**Resposta `200`**
+
+Estrutura: `Lista<Pais>`.
+
+- `items` (Pais[]) — Todos os itens; estas rotas não paginam. → ver `Pais` em **Estruturas**.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/countries?kind=radio'
+```
+
+### `GET /api/tags`
+
+Tags das estações de rádio tocáveis (vocabulário livre do Radio Browser), com a contagem de cada uma.
+
+- **URL:** `https://gradetv.net/api/tags`
+- **Auth:** `none` — Público, sem credencial.
+
+**Query**
+
+- `country` (string) — Restringe às estações de um país, ISO 3166-1 alpha-2. Ex.: `BR`.
+- `limit` (int) — Quantas tags devolver (teto 100). Padrão: `40`.
+
+**Resposta `200`**
+
+Estrutura: `Lista<Tag>`.
+
+- `items` (Tag[]) — Todos os itens; estas rotas não paginam. → ver `Tag` em **Estruturas**.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/tags?country=BR&limit=20'
+```
+
+### `GET /api/categories`
+
+Vocabulário de categorias do iptv-org, com ícone para a interface.
+
+Note que `POST /api/categories` é outra coisa: cria pasta na biblioteca do dono.
+
+- **URL:** `https://gradetv.net/api/categories`
+- **Auth:** `none` — Público, sem credencial.
+
+**Resposta `200`**
+
+Estrutura: `Lista<Categoria>`.
+
+- `items` (Categoria[]) — Todos os itens; estas rotas não paginam. → ver `Categoria` em **Estruturas**.
+
+### `GET /api/languages`
+
+Idiomas que têm canal tocável, com a contagem de cada um.
+
+- **URL:** `https://gradetv.net/api/languages`
+- **Auth:** `none` — Público, sem credencial.
+
+**Query**
+
+- `kind` (string) — `tv` (padrão) conta canais de TV; `radio` conta estações do Radio Browser; `all` junta os dois. Padrão: `tv`. Valores: `tv`, `radio`, `all`.
+
+**Resposta `200`**
+
+Estrutura: `Lista<Idioma>`.
+
+- `items` (Idioma[]) — Todos os itens; estas rotas não paginam. → ver `Idioma` em **Estruturas**.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/languages?kind=tv'
+```
+
+### `GET /api/networks`
+
+Redes e emissoras que têm canal tocável, com a contagem.
+
+- **URL:** `https://gradetv.net/api/networks`
+- **Auth:** `none` — Público, sem credencial.
+
+**Query**
+
+- `kind` (string) — `tv` (padrão) conta canais de TV; `radio` conta estações do Radio Browser; `all` junta os dois. Padrão: `tv`. Valores: `tv`, `radio`, `all`.
+
+**Resposta `200`**
+
+Estrutura: `Lista<Rede>`.
+
+- `items` (Rede[]) — Todos os itens; estas rotas não paginam. → ver `Rede` em **Estruturas**.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/networks?kind=tv'
+```
+
+### `GET /api/qualities`
+
+Qualidades distintas encontradas nos streams do catálogo (em rádio, codec e bitrate).
+
+- **URL:** `https://gradetv.net/api/qualities`
+- **Auth:** `none` — Público, sem credencial.
+
+**Query**
+
+- `kind` (string) — `tv` (padrão) conta canais de TV; `radio` conta estações do Radio Browser; `all` junta os dois. Padrão: `tv`. Valores: `tv`, `radio`, `all`.
+
+**Resposta `200`**
+
+Estrutura: `Lista<Qualidade>`.
+
+- `items` (Qualidade[]) — Todos os itens; estas rotas não paginam. → ver `Qualidade` em **Estruturas**.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/qualities?kind=radio'
+```
+
+### `GET /api/subdivisions`
+
+Estados e províncias que têm canal tocável.
+
+- **URL:** `https://gradetv.net/api/subdivisions`
+- **Auth:** `none` — Público, sem credencial.
+
+**Query**
+
+- `country` (string) — Restringe a um país, ISO 3166-1 alpha-2. Ex.: `BR`.
+- `kind` (string) — `tv` (padrão) conta canais de TV; `radio` conta estações do Radio Browser; `all` junta os dois. Padrão: `tv`. Valores: `tv`, `radio`, `all`.
+
+**Resposta `200`**
+
+Estrutura: `Lista<Subdivisao>`.
+
+- `items` (Subdivisao[]) — Todos os itens; estas rotas não paginam. → ver `Subdivisao` em **Estruturas**.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/subdivisions?country=BR'
+```
+
+### `GET /api/cities`
+
+Cidades que têm canal tocável, filtráveis por país e por estado.
+
+- **URL:** `https://gradetv.net/api/cities`
+- **Auth:** `none` — Público, sem credencial.
+
+**Query**
+
+- `country` (string) — Restringe a um país, ISO 3166-1 alpha-2. Ex.: `BR`.
+- `subdivision` (string) — Restringe a um estado/província. Ex.: `BR-SP`.
+- `kind` (string) — `tv` (padrão) conta canais de TV; `radio` conta estações do Radio Browser; `all` junta os dois. Padrão: `tv`. Valores: `tv`, `radio`, `all`.
+
+**Resposta `200`**
+
+Estrutura: `Lista<Cidade>`.
+
+- `items` (Cidade[]) — Todos os itens; estas rotas não paginam. → ver `Cidade` em **Estruturas**.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/cities?country=BR&subdivision=BR-SP'
+```
+
+## Produtores
+
+### `GET /api/producers`
+
+Oferta sob consulta para produtores com conteúdo autorizado e canais de contato.
+
+Somente informações e captação de interesse. Não provisiona, não cobra e não ativa transmissão. Use contact.form_url no browser, contact.email por e-mail ou POST /api/contact para apresentar o projeto. O envio por API mantém o gate x402 ou crédito pré-pago; o formulário humano usa Turnstile.
+
+- **URL:** `https://gradetv.net/api/producers`
+- **Auth:** `none` — Público, sem credencial.
+
+**Query**
+
+- `lang` (string) — Idioma da oferta: pt, en, es, fr ou de; ausente ou desconhecido volta a pt. Padrão: `pt`. Valores: `pt`, `en`, `es`, `fr`, `de`.
+
+**Resposta `200`**
+
+- `status` (string) — `sob_consulta`: proposta sujeita a avaliação individual.
+- `activation_available` (bool) — Sempre false: não há ativação de transmissão nesta superfície.
+- `title` (string) — Nome da oferta no idioma solicitado.
+- `description` (string) — Apresentação do serviço sob consulta.
+- `audience` (string) — Perfil de produtores e organizações atendidos pela proposta.
+- `services` (string[]) — Capacidades a avaliar no projeto, sem compromisso de disponibilidade.
+- `requirements` (string) — Necessidade de autorização para sinal e obras, território e prazo.
+- `availability` (string) — Condição de avaliação antes de confirmar início e escopo.
+- `pricing` (string) — Orçamento sob consulta; enviar interesse não contrata o serviço.
+- `contact` (object) — email, form_url e api_url absolutos, message_template e instructions para apresentar canal/evento, direitos, audiência, duração e data.
+- `_links` (object) — self (esta API com idioma) e page (página da oferta): URLs absolutas.
+
+**Erros**
+
+- `405` — A oferta só aceita GET; não existe provisionamento por POST.
+
+**Exemplo**
+
+```sh
+curl -s "https://gradetv.net/api/producers?lang=pt"
+```
+
+## Mídia
+
+### `GET /logos/:id`
+
+Logo do canal servido por nós, na variante de card (≤256px).
+
+Nunca faz proxy na hora: ou o arquivo está no R2, ou responde 404. É o que impede a página de card virar um proxy de imagem de terceiro.
+
+- **URL:** `https://gradetv.net/logos/:id`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID do logo, que vem em `Canal.logo_url`.
+
+**Resposta `200`**
+
+`image/webp` ou `image/png` — os bytes do logo.
+
+**Erros**
+
+- `404` — Não há variante em cache para este canal.
+
+### `GET /api/s/:id`
+
+Hop do stream: conta o play (uma vez por pessoa, canal e dia) e devolve a playlist da origem com as URIs absolutas, ou 302 para ela.
+
+É o endereço que aparece no M3U e na API — nunca a origem crua. O Grade NÃO retransmite vídeo: os segmentos vêm da origem, no browser e no VLC. Origem sem CORS, ou `http` numa página `https`, não toca no browser; a mesma URL toca no VLC.
+
+- **URL:** `https://gradetv.net/api/s/:id`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID do stream, que vem em `Stream.id`.
+
+**Query**
+
+- `t` (string) — Ticket curto da ficha do canal; obrigatório quando o canal é adulto.
+
+**Resposta `200`**
+
+`application/vnd.apple.mpegurl` (playlist com URI absoluta) ou 302 para a origem.
+
+**Erros**
+
+- `403` — Canal adulto sem ticket `t` válido.
+- `404` — Stream não existe.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/s/STREAM_ID'
+```
+
+### `GET /api/m/:ticket`
+
+Desligado: era o pass-through de vídeo. Responde 410 sempre.
+
+Até 05/09/2026 encaminhava os bytes da origem com CORS nosso. Relay de stream de terceiro não é serviço do Grade; a rota fica documentada para quem ainda tiver o endereço numa playlist antiga.
+
+- **URL:** `https://gradetv.net/api/m/:ticket`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `ticket` (string, obrigatório) — Ticket legado ignorado; nenhum valor reativa a retransmissão.
+
+**Resposta `200`**
+
+410 `relay_desligado`, sempre.
+
+**Erros**
+
+- `404` — Caminho inexistente fora da família retirada.
+- `410` — Sempre: o Grade não retransmite vídeo.
+
+## Feeds
+
+### `GET /f/:token/library.:formato`
+
+Feed da biblioteca inteira do dono, no formato pedido pela extensão.
+
+É a URL que a pessoa cola no VLC. Não pede credencial: o token no caminho É a credencial, e quem tem o link tem o conteúdo — trate como segredo. As URLs saem prontas em `Biblioteca.feeds`, e cada pasta e sub-aba tem a sua.
+
+- **URL:** `https://gradetv.net/f/:token/library.:formato`
+- **Auth:** `none` — Público, sem credencial.
+- Item do YouTube fica fora do M3U e do XSPF (o VLC não toca) e vem no JSON com `kind: "youtube"`.
+
+**Parâmetros de caminho**
+
+- `token` (string, obrigatório) — Token de feed do dono; vem em `Biblioteca.feeds` e não é o guest token.
+- `formato` (string, obrigatório) — Extensão que escolhe o formato de saída. Valores: `m3u`, `m3u8`, `json`, `xspf`.
+
+**Resposta `200`**
+
+`audio/x-mpegurl` (m3u/m3u8), `application/json` ou `application/xspf+xml`.
+
+**Erros**
+
+- `404` — Token de feed desconhecido.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/f/FEED_TOKEN/library.m3u
+```
+
+### `GET /f/:token/c/:categoria.:formato`
+
+Feed de uma pasta da biblioteca, para assinar só aquele recorte.
+
+- **URL:** `https://gradetv.net/f/:token/c/:categoria.:formato`
+- **Auth:** `none` — Público, sem credencial.
+- Item do YouTube fica fora do M3U e do XSPF (o VLC não toca) e vem no JSON com `kind: "youtube"`.
+
+**Parâmetros de caminho**
+
+- `token` (string, obrigatório) — Token de feed do dono, vindo de `Biblioteca.feeds`.
+- `categoria` (string, obrigatório) — Slug da pasta, que vem em `PastaBiblioteca.slug`.
+- `formato` (string, obrigatório) — Extensão que escolhe o formato de saída. Valores: `m3u`, `m3u8`, `json`, `xspf`.
+
+**Resposta `200`**
+
+`audio/x-mpegurl` (m3u/m3u8), `application/json` ou `application/xspf+xml`.
+
+**Erros**
+
+- `404` — Token de feed ou pasta desconhecidos.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/f/FEED_TOKEN/c/noticias.m3u
+```
+
+### `GET /f/:token/c/:categoria/g/:grupo.:formato`
+
+Feed de uma sub-aba — o recorte mais fino que a galeria oferece.
+
+- **URL:** `https://gradetv.net/f/:token/c/:categoria/g/:grupo.:formato`
+- **Auth:** `none` — Público, sem credencial.
+- Item do YouTube fica fora do M3U e do XSPF (o VLC não toca) e vem no JSON com `kind: "youtube"`.
+
+**Parâmetros de caminho**
+
+- `token` (string, obrigatório) — Token de feed do dono, vindo de `Biblioteca.feeds`.
+- `categoria` (string, obrigatório) — Slug da pasta que contém a sub-aba.
+- `grupo` (string, obrigatório) — Slug da sub-aba, que vem em `SubAba.slug`.
+- `formato` (string, obrigatório) — Extensão que escolhe o formato de saída. Valores: `m3u`, `m3u8`, `json`, `xspf`.
+
+**Resposta `200`**
+
+`audio/x-mpegurl` (m3u/m3u8), `application/json` ou `application/xspf+xml`.
+
+**Erros**
+
+- `404` — Token de feed, pasta ou sub-aba desconhecidos.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/f/FEED_TOKEN/c/noticias/g/manchete.json
+```
+
+## Identidade
+
+### `POST /api/guest`
+
+Cria um convidado `ipt_…` — é a identidade que guarda galeria, histórico e favoritos.
+
+Não pede e-mail nem nada. Guarde o token: perdeu o token, perdeu a biblioteca (a não ser que você já tenha amarrado a um e-mail com `POST /api/auth/start`).
+
+- **URL:** `https://gradetv.net/api/guest`
+- **Auth:** `none` — Público, sem credencial.
+
+**Resposta `200`**
+
+- `token` (string) — O convidado, prefixo `ipt_`. Mande em `X-Guest-Token` ou como Bearer.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/guest
+```
+
+### `POST /api/keys`
+
+Cria uma API key `iptk_…` para o agente — o texto completo aparece uma vez só.
+
+A key é a conta do agente: vale como o convidado que a criou e não expira até ser revogada.
+
+- **URL:** `https://gradetv.net/api/keys`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Corpo** (`application/json`)
+
+- `label` (string) — Rótulo para lembrar onde a chave foi usada.
+
+**Exemplo de corpo**
+
+```json
+{
+  "label": "meu-agente"
+}
+```
+
+**Resposta `200`**
+
+- `id` (string) — ID da chave, para revogar depois.
+- `token` (string) — A chave em texto. Não é mostrada de novo — guarde agora.
+- `masked` (string) — A mesma chave mascarada, como ela aparecerá na listagem.
+- `label` (string, pode ser null) — O rótulo que você mandou.
+- `note` (string) — Lembrete de que o token não será mostrado outra vez.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/keys -H "X-Guest-Token: $IPT" -H 'content-type: application/json' -d '{"label":"meu-agente"}'
+```
+
+### `GET /api/keys`
+
+Lista as chaves do dono, sempre mascaradas, inclusive as já revogadas.
+
+- **URL:** `https://gradetv.net/api/keys`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Resposta `200`**
+
+- `keys` (Chave[]) — As chaves do dono, da mais recente para a mais antiga. → ver `Chave` em **Estruturas**.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/keys -H "X-Guest-Token: $IPT"
+```
+
+### `DELETE /api/keys/:id`
+
+Revoga uma chave. A linha continua na listagem, marcada como revogada.
+
+- **URL:** `https://gradetv.net/api/keys/:id`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID da chave, vindo de `Chave.id`.
+
+**Resposta `200`**
+
+Estrutura: `Ok`.
+
+- `ok` (bool) — Sempre `true` — a falha vem como status 4xx/5xx, não como `ok:false`.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — Recurso não existe (ou não é seu — a API não distingue os dois de propósito).
+
+**Exemplo**
+
+```sh
+curl -s -XDELETE https://gradetv.net/api/keys/KEY_ID -H "X-Guest-Token: $IPT"
+```
+
+## Galeria
+
+### `GET /api/library`
+
+A galeria inteira do dono: pastas, sub-abas, canais e as URLs de feed de cada nível.
+
+- **URL:** `https://gradetv.net/api/library`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Resposta `200`**
+
+Estrutura: `Biblioteca`.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/library -H "X-Guest-Token: $IPT"
+```
+
+### `POST /api/categories`
+
+Cria uma pasta na galeria, já com a sub-aba Geral dentro dela.
+
+Teto de 8 pastas por dono. A resposta traz a biblioteca inteira já atualizada — não precisa recarregar `GET /api/library` depois.
+
+- **URL:** `https://gradetv.net/api/categories`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Corpo** (`application/json`)
+
+- `name` (string, obrigatório) — Nome da pasta, até 40 caracteres.
+
+**Exemplo de corpo**
+
+```json
+{
+  "name": "Notícias"
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `BibliotecaComPasta`.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+- `id` (string) — ID da pasta criada, `cat_…`.
+- `name` (string) — Nome da pasta criada.
+- `slug` (string) — Slug da pasta — é o que entra na URL do feed dela.
+- `group_id` (string) — ID da sub-aba Geral, criada junto com a pasta.
+
+**Erros**
+
+- `400` — Nome vazio, longo demais, ou o teto de 8 pastas foi atingido.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/categories -H "X-Guest-Token: $IPT" -H 'content-type: application/json' -d '{"name":"Notícias"}'
+```
+
+### `PATCH /api/categories/:id`
+
+Renomeia uma pasta. O slug do feed acompanha o nome novo.
+
+Atenção: mudar o nome muda o slug, e portanto muda a URL do feed daquela pasta. Quem já tinha colado o link antigo no player precisa colar o novo.
+
+- **URL:** `https://gradetv.net/api/categories/:id`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID da pasta, `cat_…`.
+
+**Corpo** (`application/json`)
+
+- `name` (string, obrigatório) — Novo nome da pasta, até 40 caracteres.
+
+**Exemplo de corpo**
+
+```json
+{
+  "name": "Jornalismo"
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `Biblioteca`.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+
+**Erros**
+
+- `400` — Nome vazio ou longo demais.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — Recurso não existe (ou não é seu — a API não distingue os dois de propósito).
+
+**Exemplo**
+
+```sh
+curl -s -XPATCH https://gradetv.net/api/categories/cat_123 -H "X-Guest-Token: $IPT" -H 'content-type: application/json' -d '{"name":"Jornalismo"}'
+```
+
+### `DELETE /api/categories/:id`
+
+Apaga a pasta e tudo que está dentro dela: sub-abas e canais.
+
+- **URL:** `https://gradetv.net/api/categories/:id`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID da pasta, `cat_…`.
+
+**Resposta `200`**
+
+Estrutura: `Biblioteca`.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — Recurso não existe (ou não é seu — a API não distingue os dois de propósito).
+
+**Exemplo**
+
+```sh
+curl -s -XDELETE https://gradetv.net/api/categories/cat_123 -H "X-Guest-Token: $IPT"
+```
+
+### `POST /api/groups`
+
+Cria uma sub-aba dentro de uma pasta.
+
+Teto de 12 sub-abas por pasta. A resposta traz a biblioteca inteira já atualizada — não precisa recarregar `GET /api/library` depois.
+
+- **URL:** `https://gradetv.net/api/groups`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Corpo** (`application/json`)
+
+- `category_id` (string, obrigatório) — Pasta que vai receber a sub-aba, `cat_…`.
+- `name` (string, obrigatório) — Nome da sub-aba, até 40 caracteres.
+
+**Exemplo de corpo**
+
+```json
+{
+  "category_id": "cat_…",
+  "name": "Manchete"
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `BibliotecaComSubAba`.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+- `id` (string) — ID da sub-aba criada, `grp_…`.
+- `name` (string) — Nome da sub-aba criada.
+- `slug` (string) — Slug da sub-aba — entra na URL do feed dela.
+- `category_id` (string) — Pasta que recebeu a sub-aba.
+
+**Erros**
+
+- `400` — Nome inválido ou teto de 12 sub-abas atingido.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — A pasta não é sua ou não existe.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/groups -H "X-Guest-Token: $IPT" -H 'content-type: application/json' -d '{"category_id":"cat_123","name":"Manchete"}'
+```
+
+### `DELETE /api/groups/:id`
+
+Apaga uma sub-aba e os canais que estavam nela.
+
+- **URL:** `https://gradetv.net/api/groups/:id`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID da sub-aba, `grp_…`.
+
+**Resposta `200`**
+
+Estrutura: `Biblioteca`.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — Recurso não existe (ou não é seu — a API não distingue os dois de propósito).
+
+**Exemplo**
+
+```sh
+curl -s -XDELETE https://gradetv.net/api/groups/grp_123 -H "X-Guest-Token: $IPT"
+```
+
+### `POST /api/items`
+
+Põe um canal do catálogo numa sub-aba da galeria.
+
+Teto de 40 canais por sub-aba. A resposta diz em que pasta e sub-aba o canal caiu, para a tela abrir no lugar certo. A resposta traz a biblioteca inteira já atualizada — não precisa recarregar `GET /api/library` depois.
+
+- **URL:** `https://gradetv.net/api/items`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Corpo** (`application/json`)
+
+- `group_id` (string, obrigatório) — Sub-aba que recebe o canal, `grp_…`.
+- `channel_id` (string, obrigatório) — ID do canal no catálogo, ex. `Globo.br`.
+- `stream_id` (string) — Stream específico; sem ele o servidor escolhe o melhor.
+
+**Exemplo de corpo**
+
+```json
+{
+  "group_id": "grp_…",
+  "channel_id": "Globo.br"
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `BibliotecaComItem`.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+- `id` (string) — ID do item criado, `itm_…`.
+- `group_id` (string) — Sub-aba que recebeu o canal.
+- `category_id` (string) — Pasta a que essa sub-aba pertence.
+
+**Erros**
+
+- `400` — Teto de 40 canais na sub-aba atingido.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — Sub-aba ou canal não encontrados.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/items -H "X-Guest-Token: $IPT" -H 'content-type: application/json' -d '{"group_id":"grp_123","channel_id":"Globo.br"}'
+```
+
+### `DELETE /api/items/:id`
+
+Tira um canal da sub-aba. O canal continua no catálogo público, claro.
+
+- **URL:** `https://gradetv.net/api/items/:id`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID do item na galeria, `itm_…`.
+
+**Resposta `200`**
+
+Estrutura: `Biblioteca`.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — Recurso não existe (ou não é seu — a API não distingue os dois de propósito).
+
+**Exemplo**
+
+```sh
+curl -s -XDELETE https://gradetv.net/api/items/itm_123 -H "X-Guest-Token: $IPT"
+```
+
+### `POST /api/items/:id/play`
+
+Marca este canal como o último tocado da sub-aba — é o que devolve a pessoa onde parou.
+
+Não conta play público nem entra no histórico; para isso são `POST /api/history` e `POST /api/play-report`.
+
+- **URL:** `https://gradetv.net/api/items/:id/play`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID do item na galeria, `itm_…`.
+
+**Resposta `200`**
+
+Estrutura: `Biblioteca`.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — Recurso não existe (ou não é seu — a API não distingue os dois de propósito).
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/items/itm_123/play -H "X-Guest-Token: $IPT"
+```
+
+## Histórico
+
+### `GET /api/history`
+
+Canais que o dono assistiu, do mais recente para o mais antigo.
+
+Canal adulto só aparece com consentimento 18+ válido; sem ele a linha é filtrada na consulta, não escondida na tela.
+
+- **URL:** `https://gradetv.net/api/history`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Query**
+
+- `limit` (int) — Itens por página. Acima de 50 é silenciosamente reduzido a 50. Padrão: `20`.
+- `offset` (int) — Quantos itens pular. Use `next_offset` da resposta anterior. Padrão: `0`.
+
+**Resposta `200`**
+
+Estrutura: `PaginaDeHistorico`.
+
+- `items` (Visita[]) — Os itens desta página, na ordem que a rota define. → ver `Visita` em **Estruturas**.
+- `total` (int) — Quantos itens casam com o filtro, ignorando a paginação.
+- `limit` (int) — Tamanho de página efetivamente aplicado (pode ser menor que o pedido).
+- `offset` (int) — Deslocamento aplicado nesta página.
+- `next_offset` (int, pode ser null) — Offset da próxima página; `null` quando esta é a última.
+- `api` (string) — URL absoluta desta própria listagem.
+- `max` (int) — Quantos canais o histórico guarda no máximo.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/history?limit=10' -H "X-Guest-Token: $IPT"
+```
+
+### `POST /api/history`
+
+Registra que o dono assistiu um canal. Repetir soma em `plays` e sobe a linha.
+
+- **URL:** `https://gradetv.net/api/history`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Corpo** (`application/json`)
+
+- `channel_id` (string, obrigatório) — Canal assistido, ex. `Globo.br`.
+
+**Exemplo de corpo**
+
+```json
+{
+  "channel_id": "Globo.br"
+}
+```
+
+**Resposta `200`**
+
+- `channel_id` (string) — O canal registrado.
+- `plays` (int) — Quantas vezes o dono já assistiu este canal.
+- `last_at` (string, pode ser null) — Momento deste registro (UTC).
+- `api` (string) — URL absoluta do histórico.
+
+**Erros**
+
+- `400` — `channel_id` ausente ou JSON inválido.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/history -H "X-Guest-Token: $IPT" -H 'content-type: application/json' -d '{"channel_id":"Globo.br"}'
+```
+
+### `DELETE /api/history/:channel_id`
+
+Tira um canal do histórico do dono.
+
+- **URL:** `https://gradetv.net/api/history/:channel_id`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `channel_id` (string, obrigatório) — Canal a remover do histórico, ex. `Globo.br`.
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true` quando removeu.
+- `removed` (string) — O `channel_id` que saiu.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — Recurso não existe (ou não é seu — a API não distingue os dois de propósito).
+
+**Exemplo**
+
+```sh
+curl -s -XDELETE https://gradetv.net/api/history/Globo.br -H "X-Guest-Token: $IPT"
+```
+
+### `DELETE /api/history`
+
+Limpa o histórico inteiro do dono, de uma vez.
+
+- **URL:** `https://gradetv.net/api/history`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true`.
+- `cleared` (bool) — Sempre `true` — o histórico foi zerado.
+- `total` (int) — Quantos restaram: zero.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s -XDELETE https://gradetv.net/api/history -H "X-Guest-Token: $IPT"
+```
+
+## Conteúdo adulto
+
+### `GET /api/nsfw-consent`
+
+Estado do portão adulto do dono: se vale, qual versão dos termos e a idade mínima.
+
+- **URL:** `https://gradetv.net/api/nsfw-consent`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Resposta `200`**
+
+Estrutura: `Consentimento`.
+
+- `consented` (bool) — Se o consentimento vale agora, na versão corrente dos termos.
+- `terms_version` (string) — Versão dos termos em vigor hoje.
+- `min_age` (int) — Idade mínima exigida.
+- `confirmed_at` (string, opcional) — Quando o dono aceitou; só aparece com consentimento válido.
+- `accepted_version` (string, opcional) — Versão que ele aceitou; só com consentimento válido.
+- `stale_version` (string, opcional) — Versão antiga aceita, quando os termos mudaram e ele precisa reaceitar.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/nsfw-consent -H "X-Guest-Token: $IPT"
+```
+
+### `POST /api/nsfw-consent`
+
+Declara a idade e aceita os termos de conteúdo adulto.
+
+Sem isto, `nsfw=1` na busca e a ficha de canal adulto respondem 403 `nsfw_consent_required`. Pagar o passe não substitui: são dois portões, idade primeiro.
+
+- **URL:** `https://gradetv.net/api/nsfw-consent`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Corpo** (`application/json`)
+
+- `birth_date` (string, obrigatório) — Data de nascimento, AAAA-MM-DD.
+- `accept_terms` (bool, obrigatório) — Tem que ser `true` — aceite explícito.
+- `terms_version` (string, obrigatório) — Versão dos termos aceita; use a que veio no GET.
+
+**Exemplo de corpo**
+
+```json
+{
+  "birth_date": "1990-05-20",
+  "accept_terms": true,
+  "terms_version": "nsfw-2026-08-14"
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `Consentimento`.
+
+- `consented` (bool) — Se o consentimento vale agora, na versão corrente dos termos.
+- `terms_version` (string) — Versão dos termos em vigor hoje.
+- `min_age` (int) — Idade mínima exigida.
+- `confirmed_at` (string, opcional) — Quando o dono aceitou; só aparece com consentimento válido.
+- `accepted_version` (string, opcional) — Versão que ele aceitou; só com consentimento válido.
+- `stale_version` (string, opcional) — Versão antiga aceita, quando os termos mudaram e ele precisa reaceitar.
+
+**Erros**
+
+- `400` — `underage`, `terms_required`, `birth_date` inválida ou `terms_outdated`.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/nsfw-consent -H "X-Guest-Token: $IPT" -H 'content-type: application/json' -d '{"birth_date":"1990-05-20","accept_terms":true,"terms_version":"nsfw-2026-08-14"}'
+```
+
+### `DELETE /api/nsfw-consent`
+
+Revoga o consentimento; o portão adulto fecha de novo na hora.
+
+Tirar é tão fácil quanto dar — sem isso o portão viraria armadilha.
+
+- **URL:** `https://gradetv.net/api/nsfw-consent`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Resposta `200`**
+
+Estrutura: `Consentimento`.
+
+- `consented` (bool) — Se o consentimento vale agora, na versão corrente dos termos.
+- `terms_version` (string) — Versão dos termos em vigor hoje.
+- `min_age` (int) — Idade mínima exigida.
+- `confirmed_at` (string, opcional) — Quando o dono aceitou; só aparece com consentimento válido.
+- `accepted_version` (string, opcional) — Versão que ele aceitou; só com consentimento válido.
+- `stale_version` (string, opcional) — Versão antiga aceita, quando os termos mudaram e ele precisa reaceitar.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s -XDELETE https://gradetv.net/api/nsfw-consent -H "X-Guest-Token: $IPT"
+```
+
+### `POST /api/nsfw/pass`
+
+Compra o passe de conteúdo adulto: $0.10 por 30 dias, via x402.
+
+Exige consentimento de idade já gravado — sem ele responde 403 e nem mostra o preço. Passe válido devolve 200 sem cobrar de novo.
+
+- **URL:** `https://gradetv.net/api/nsfw/pass`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true` quando o passe está valendo ao fim da chamada.
+- `charged` (bool) — `true` se esta chamada cobrou; `false` se o passe já valia.
+- `until` (string) — Até quando o passe vale (UTC).
+- `api` (string) — URL absoluta desta rota.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `402` — Cota estourada. A resposta traz `accepts[]` (x402, USDC na Base): pague e repita a mesma chamada com `X-PAYMENT`.
+- `403` — Sem consentimento 18+ gravado — declare a idade antes.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/nsfw/pass -H "X-Guest-Token: $IPT" -H "X-PAYMENT: $PAGAMENTO"
+```
+
+### `GET /api/nsfw/pass`
+
+Situação do passe adulto do dono: se vale e até quando.
+
+- **URL:** `https://gradetv.net/api/nsfw/pass`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Resposta `200`**
+
+Estrutura: `Passe`.
+
+- `active` (bool) — Se o passe vale neste momento.
+- `until` (string, pode ser null) — Até quando vale (UTC); `null` quando não há passe.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/nsfw/pass -H "X-Guest-Token: $IPT"
+```
+
+## Saúde
+
+### `POST /api/play-report`
+
+Relata se o canal tocou ou falhou — é o que alimenta a saúde pública do catálogo.
+
+Conta uma vez por dono, por canal, por dia e por resultado; relatar de novo devolve 200 com `reason: ja_relatado_hoje`, e não é erro. Navegador e sistema saem do User-Agent e o país da borda — mandar isso no corpo não muda nada. Sem relato, o catálogo não aprende: é assim que `GET /api/channels/:id/health` sabe distinguir canal fora do ar de canal bloqueado para você.
+
+- **URL:** `https://gradetv.net/api/play-report`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Corpo** (`application/json`)
+
+- `channel_id` (string, obrigatório) — Canal que você tentou assistir.
+- `ok` (bool, obrigatório) — `true` se tocou, `false` se falhou.
+- `code` (string) — Por que falhou; só quando `ok` é `false`. Valores: `cors`, `geo`, `sumiu`, `codec`, `playlist`, `sem_resposta`, `protocolo`, `sem_stream`, `outro`.
+
+**Exemplo de corpo**
+
+```json
+{
+  "channel_id": "Globo.br",
+  "ok": false,
+  "code": "cors"
+}
+```
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true` — o relato foi aceito.
+- `counted` (bool) — `false` quando você já tinha relatado o mesmo hoje.
+- `reason` (string, opcional) — Por que não contou; só aparece quando `counted` é `false`.
+- `channel_id` (string) — O canal relatado.
+- `stats` (Social) — Os contadores do canal já com este relato dentro. → ver `Social` em **Estruturas**.
+- `health` (string) — URL do painel de saúde completo deste canal.
+
+**Erros**
+
+- `400` — `channel_id` ausente, `ok` faltando ou `code` fora da lista.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/play-report -H "X-Guest-Token: $IPT" -H 'content-type: application/json' -d '{"channel_id":"Globo.br","ok":false,"code":"geo"}'
+```
+
+### `GET /api/play-reports`
+
+Relatos crus, com endereço IP, para investigar um canal — só operador.
+
+Existe separado do painel público justamente porque traz endereço. A linha some depois do prazo em `retention_days`, e `/api/channels/:id/health` nunca devolve IP.
+
+- **URL:** `https://gradetv.net/api/play-reports`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Query**
+
+- `channel_id` (string) — Restringe a um canal. Ex.: `Globo.br`.
+- `ok` (bool) — `0` traz só as falhas — é o recorte que interessa numa investigação. Valores: `0`.
+- `limit` (int) — Itens por página. Acima de 50 é silenciosamente reduzido a 50. Padrão: `20`.
+- `offset` (int) — Quantos itens pular. Use `next_offset` da resposta anterior. Padrão: `0`.
+
+**Resposta `200`**
+
+Estrutura: `PaginaDeRelatos`.
+
+- `items` (Relato[]) — Os relatos, do mais recente para o mais antigo. → ver `Relato` em **Estruturas**.
+- `limit` (int) — Tamanho de página aplicado.
+- `offset` (int) — Deslocamento aplicado.
+- `next_offset` (int, pode ser null) — Offset da próxima página; `null` quando acabou.
+- `retention_days` (int) — Depois de quantos dias a linha é apagada.
+- `filters` (FiltrosRelato) — Os filtros como o servidor os entendeu. → ver `FiltrosRelato` em **Estruturas**.
+- `api` (string) — URL absoluta desta listagem.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/play-reports?channel_id=Globo.br&ok=0' -H "Authorization: Bearer $METRICS_TOKEN"
+```
+
+## Favoritos
+
+### `GET /api/favorites`
+
+Canais favoritados pelo dono, do mais recente para o mais antigo.
+
+Canal adulto só aparece com consentimento 18+ válido.
+
+- **URL:** `https://gradetv.net/api/favorites`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Query**
+
+- `limit` (int) — Itens por página. Acima de 50 é silenciosamente reduzido a 50. Padrão: `20`.
+- `offset` (int) — Quantos itens pular. Use `next_offset` da resposta anterior. Padrão: `0`.
+
+**Resposta `200`**
+
+Estrutura: `PaginaDeFavoritos`.
+
+- `items` (Favorito[]) — Os itens desta página, na ordem que a rota define. → ver `Favorito` em **Estruturas**.
+- `total` (int) — Quantos itens casam com o filtro, ignorando a paginação.
+- `limit` (int) — Tamanho de página efetivamente aplicado (pode ser menor que o pedido).
+- `offset` (int) — Deslocamento aplicado nesta página.
+- `next_offset` (int, pode ser null) — Offset da próxima página; `null` quando esta é a última.
+- `api` (string) — URL absoluta desta própria listagem.
+- `max` (int) — Quantos favoritos o dono pode ter.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/favorites?limit=10' -H "X-Guest-Token: $IPT"
+```
+
+### `POST /api/favorites`
+
+Favorita um canal. Repetir não soma: o contador público conta pessoas, não cliques.
+
+- **URL:** `https://gradetv.net/api/favorites`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Corpo** (`application/json`)
+
+- `channel_id` (string, obrigatório) — Canal a favoritar, ex. `Globo.br`.
+
+**Exemplo de corpo**
+
+```json
+{
+  "channel_id": "Globo.br"
+}
+```
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true`.
+- `favorited` (bool) — Sempre `true` ao fim desta chamada.
+- `created` (bool) — `true` se foi agora; `false` se já era favorito.
+- `channel_id` (string) — O canal favoritado.
+- `favorites` (int) — Total de pessoas que favoritaram este canal.
+
+**Erros**
+
+- `400` — `channel_id` ausente ou teto de favoritos atingido.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/favorites -H "X-Guest-Token: $IPT" -H 'content-type: application/json' -d '{"channel_id":"Globo.br"}'
+```
+
+### `DELETE /api/favorites/:channel_id`
+
+Desfavorita o canal e devolve o ponto ao contador público.
+
+- **URL:** `https://gradetv.net/api/favorites/:channel_id`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `channel_id` (string, obrigatório) — Canal a desfavoritar, ex. `Globo.br`.
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true`.
+- `favorited` (bool) — Sempre `false` ao fim desta chamada.
+- `channel_id` (string) — O canal que saiu dos favoritos.
+- `favorites` (int) — Total de pessoas que ainda favoritam este canal.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — O canal não estava nos seus favoritos.
+
+**Exemplo**
+
+```sh
+curl -s -XDELETE https://gradetv.net/api/favorites/Globo.br -H "X-Guest-Token: $IPT"
+```
+
+## Comentários
+
+### `GET /api/channels/:id/comments`
+
+Comentários públicos de um canal, do mais novo para o mais antigo.
+
+Com credencial na chamada, cada comentário seu vem com `mine: true` — é assim que a interface sabe o que dá para apagar.
+
+- **URL:** `https://gradetv.net/api/channels/:id/comments`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID do canal no iptv-org. Ex.: `Globo.br`.
+
+**Query**
+
+- `limit` (int) — Itens por página. Acima de 50 é silenciosamente reduzido a 50. Padrão: `20`.
+- `offset` (int) — Quantos itens pular. Use `next_offset` da resposta anterior. Padrão: `0`.
+
+**Resposta `200`**
+
+Estrutura: `PaginaDeComentarios`.
+
+- `items` (Comentario[]) — Os itens desta página, na ordem que a rota define. → ver `Comentario` em **Estruturas**.
+- `total` (int) — Quantos itens casam com o filtro, ignorando a paginação.
+- `limit` (int) — Tamanho de página efetivamente aplicado (pode ser menor que o pedido).
+- `offset` (int) — Deslocamento aplicado nesta página.
+- `next_offset` (int, pode ser null) — Offset da próxima página; `null` quando esta é a última.
+- `api` (string) — URL absoluta desta própria listagem.
+- `channel_id` (string) — Canal a que os comentários pertencem.
+- `max_length` (int) — Tamanho máximo de um comentário novo.
+
+**Erros**
+
+- `404` — Canal não existe no catálogo.
+
+**Exemplo**
+
+```sh
+curl -s 'https://gradetv.net/api/channels/Globo.br/comments?limit=10'
+```
+
+### `POST /api/channels/:id/comments`
+
+Escreve um comentário no canal. Teto de 20 por hora por dono.
+
+Sem `author`, o apelido é gerado e fica estável para o mesmo dono — a pessoa não vira um nome diferente a cada mensagem.
+
+- **URL:** `https://gradetv.net/api/channels/:id/comments`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID do canal no iptv-org. Ex.: `Globo.br`.
+
+**Corpo** (`application/json`)
+
+- `body` (string, obrigatório) — O texto do comentário; o teto vem em `max_length` da listagem.
+- `author` (string) — Apelido a usar; sem ele o servidor gera um estável.
+
+**Exemplo de corpo**
+
+```json
+{
+  "body": "Só abre no formato 720p.",
+  "author": "Wendel"
+}
+```
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true` quando o comentário entrou.
+- `comment` (Comentario) — O comentário criado, do jeito que ele aparece na listagem. → ver `Comentario` em **Estruturas**.
+
+**Erros**
+
+- `400` — Texto vazio ou acima de `max_length`.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — Canal não existe.
+- `429` — Passou de 20 comentários na hora.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/channels/Globo.br/comments -H "X-Guest-Token: $IPT" -H 'content-type: application/json' -d '{"body":"Só abre em 720p."}'
+```
+
+### `DELETE /api/comments/:id`
+
+Apaga um comentário seu. Comentário alheio responde 404, não 403.
+
+O 404 é de propósito: a API não confirma que existe um comentário com aquele id se ele não é seu.
+
+- **URL:** `https://gradetv.net/api/comments/:id`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `id` (string, obrigatório) — ID do comentário, vindo de `Comentario.id`.
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true`.
+- `removed` (string) — O id que saiu.
+- `channel_id` (string) — Canal de onde o comentário saiu.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `404` — Recurso não existe (ou não é seu — a API não distingue os dois de propósito).
+
+**Exemplo**
+
+```sh
+curl -s -XDELETE https://gradetv.net/api/comments/CMT_ID -H "X-Guest-Token: $IPT"
+```
+
+## Chat
+
+### `GET /api/chat/:channel_id/mensagens`
+
+Últimas mensagens da sala do canal, mais o endereço do WebSocket para acompanhar ao vivo.
+
+- **URL:** `https://gradetv.net/api/chat/:channel_id/mensagens`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `channel_id` (string, obrigatório) — ID do canal no iptv-org. Ex.: `Globo.br`.
+
+**Resposta `200`**
+
+- `channel_id` (string) — Canal a que a sala pertence.
+- `items` (MensagemChat[]) — As últimas mensagens, da mais antiga para a mais nova. → ver `MensagemChat` em **Estruturas**.
+- `watching` (int) — Quantas pessoas estão com a sala aberta agora.
+- `max_length` (int) — Tamanho máximo de uma mensagem.
+- `_links` (LinksChat) — Esta listagem, o WebSocket e a ficha do canal. → ver `LinksChat` em **Estruturas**.
+
+**Erros**
+
+- `404` — Canal não existe no catálogo.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/chat/Globo.br/mensagens
+```
+
+### `POST /api/chat/:channel_id/mensagens`
+
+Manda mensagem na sala sem abrir WebSocket. Exige o passe mensal do chat.
+
+Ler é grátis; escrever custa $0.10 por 30 dias. Sem passe válido a resposta é 402 com `accepts[]` — pague e repita a mesma chamada.
+
+- **URL:** `https://gradetv.net/api/chat/:channel_id/mensagens`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Parâmetros de caminho**
+
+- `channel_id` (string, obrigatório) — ID do canal no iptv-org. Ex.: `Globo.br`.
+
+**Corpo** (`application/json`)
+
+- `body` (string, obrigatório) — O texto da mensagem, dentro de `max_length`.
+- `author` (string) — Apelido a usar; sem ele o servidor gera um estável.
+
+**Exemplo de corpo**
+
+```json
+{
+  "body": "alguém aí?",
+  "author": "Wendel"
+}
+```
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true` quando a mensagem entrou.
+- `message` (MensagemChat) — A mensagem publicada na sala. → ver `MensagemChat` em **Estruturas**.
+
+**Erros**
+
+- `400` — Texto vazio ou longo demais.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `402` — Cota estourada. A resposta traz `accepts[]` (x402, USDC na Base): pague e repita a mesma chamada com `X-PAYMENT`.
+- `404` — Canal não existe.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/chat/Globo.br/mensagens -H "X-Guest-Token: $IPT" -H "X-PAYMENT: $PAGAMENTO" -H 'content-type: application/json' -d '{"body":"alguém aí?"}'
+```
+
+### `POST /api/chat/pass`
+
+Compra ou confirma o passe mensal do chat: $0.10 por 30 dias, via x402.
+
+Passe já válido devolve 200 sem cobrar de novo — dá para chamar antes de escrever, sem risco de pagar duas vezes.
+
+- **URL:** `https://gradetv.net/api/chat/pass`
+- **Auth:** `guest` — Guest `ipt_…` (`POST /api/guest` em `X-Guest-Token` ou Bearer) ou API key `iptk_…` (Bearer / `X-Api-Key`). A key é a conta do agente.
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true` quando o passe está valendo ao fim da chamada.
+- `charged` (bool) — `true` se esta chamada cobrou; `false` se o passe já valia.
+- `until` (string) — Até quando o passe vale (UTC).
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `402` — Cota estourada. A resposta traz `accepts[]` (x402, USDC na Base): pague e repita a mesma chamada com `X-PAYMENT`.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/chat/pass -H "X-Guest-Token: $IPT" -H "X-PAYMENT: $PAGAMENTO"
+```
+
+### `GET /api/chat/:channel_id/ws`
+
+WebSocket da sala do canal — o caminho ao vivo, com presença.
+
+Exige `Upgrade: websocket`; sem isso responde 426. O socket entra MUDO: mande `{t:'hello',token:'ipt_…'}` e depois `{t:'msg',body:'…'}`. Você recebe `{t:'pronto',autor,items[],watching}` na entrada e `{t:'msg'|'presenca',…}` durante a sessão; erro chega como `{t:'erro',code:'auth'|'vazio'|'pago'}`.
+
+- **URL:** `https://gradetv.net/api/chat/:channel_id/ws`
+- **Auth:** `none` — Público, sem credencial.
+
+**Parâmetros de caminho**
+
+- `channel_id` (string, obrigatório) — ID do canal no iptv-org. Ex.: `Globo.br`.
+
+**Resposta `200`**
+
+`101 Switching Protocols` e a conexão WebSocket; `426` sem o header de upgrade.
+
+**Erros**
+
+- `404` — Canal não existe no catálogo.
+
+## Conta
+
+### `POST /api/auth/start`
+
+Manda um código de 6 dígitos por e-mail para criar a conta ou entrar nela.
+
+- **URL:** `https://gradetv.net/api/auth/start`
+- **Auth:** `none` — Público, sem credencial.
+
+**Corpo** (`application/json`)
+
+- `email` (string, obrigatório) — E-mail que vai receber o código.
+
+**Exemplo de corpo**
+
+```json
+{
+  "email": "voce@exemplo.com"
+}
+```
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true` quando o envio foi aceito.
+- `sent` (bool) — Se o e-mail saiu de fato.
+- `expires_in` (int) — Segundos até o código expirar.
+
+**Erros**
+
+- `400` — E-mail ausente ou malformado.
+- `429` — Pedidos demais para o mesmo e-mail.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/auth/start -H 'content-type: application/json' -d '{"email":"voce@exemplo.com"}'
+```
+
+### `POST /api/auth/verify`
+
+Troca o código por uma sessão e devolve o convidado que a conta já tinha.
+
+O campo que importa é `claimed.product`: de outro aparelho, ele traz o convidado ANTIGO com `adopt: true`. É ESSE token que tem a biblioteca — o convidado local do aparelho novo está vazio. Ignorar isso é o jeito clássico de a pessoa 'perder' a galeria ao entrar.
+
+- **URL:** `https://gradetv.net/api/auth/verify`
+- **Auth:** `none` — Público, sem credencial.
+
+**Corpo** (`application/json`)
+
+- `email` (string, obrigatório) — O mesmo e-mail do `/api/auth/start`.
+- `code` (string, obrigatório) — Os 6 dígitos que chegaram por e-mail.
+- `guest_token` (string) — Convidado deste aparelho, para ser reivindicado pela conta.
+
+**Exemplo de corpo**
+
+```json
+{
+  "email": "voce@exemplo.com",
+  "code": "123456",
+  "guest_token": "ipt_…"
+}
+```
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true` quando o código conferiu.
+- `user` (Conta) — A pessoa que acabou de entrar. → ver `Conta` em **Estruturas**.
+- `session_token` (string) — Sessão `sess_…` para usar em `Authorization: Bearer`.
+- `claimed` (Reivindicacao) — O convidado que a conta já tinha — leia `adopt` antes de continuar. → ver `Reivindicacao` em **Estruturas**.
+
+**Erros**
+
+- `400` — Código errado ou expirado.
+- `429` — Tentativas demais.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/auth/verify -H 'content-type: application/json' -d '{"email":"voce@exemplo.com","code":"123456","guest_token":"ipt_…"}'
+```
+
+### `POST /api/auth/claim`
+
+Liga um convidado a uma sessão já aberta, sem passar pelo código de novo.
+
+Use quando a pessoa já está logada e aparece um convidado novo (outro aparelho, outro navegador).
+
+- **URL:** `https://gradetv.net/api/auth/claim`
+- **Auth:** `none` — Público, sem credencial.
+
+**Headers**
+
+- `Authorization` (string, obrigatório) — `Bearer sess_…`, a sessão que vai adotar o convidado.
+
+**Corpo** (`application/json`)
+
+- `guest_token` (string, obrigatório) — Convidado `ipt_…` a ligar na conta.
+
+**Exemplo de corpo**
+
+```json
+{
+  "guest_token": "ipt_…"
+}
+```
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true` quando ligou.
+- `claimed` (bool) — Se havia algo novo para ligar.
+- `user` (Conta) — A pessoa dona da sessão. → ver `Conta` em **Estruturas**.
+
+**Erros**
+
+- `400` — `guest_token` ausente.
+- `401` — Sessão ausente ou inválida.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/auth/claim -H "Authorization: Bearer $SESS" -H 'content-type: application/json' -d '{"guest_token":"ipt_…"}'
+```
+
+### `POST /api/auth/logout`
+
+Encerra a sessão. A linha some do banco, não fica marcada como inativa.
+
+- **URL:** `https://gradetv.net/api/auth/logout`
+- **Auth:** `none` — Público, sem credencial.
+
+**Headers**
+
+- `Authorization` (string, obrigatório) — `Bearer sess_…`, a sessão a encerrar.
+
+**Resposta `200`**
+
+Estrutura: `Ok`.
+
+- `ok` (bool) — Sempre `true` — a falha vem como status 4xx/5xx, não como `ok:false`.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/auth/logout -H "Authorization: Bearer $SESS"
+```
+
+### `GET /api/me`
+
+A conta da sessão: e-mail, convidado principal e o tamanho da biblioteca.
+
+- **URL:** `https://gradetv.net/api/me`
+- **Auth:** `session` — Sessão de usuário: `Authorization: Bearer sess_…` (obtida por OTP de e-mail).
+
+**Resposta `200`**
+
+- `user` (Conta) — A pessoa dona da sessão. → ver `Conta` em **Estruturas**.
+- `app` (string) — Nome do produto.
+- `guest_token` (string) — Convidado principal da conta — é o que tem a galeria.
+- `resources` (Recursos) — Quantas pastas, favoritos e canais no histórico existem. → ver `Recursos` em **Estruturas**.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/me -H "Authorization: Bearer $SESS"
+```
+
+## Cobrança
+
+### `GET /api/billing`
+
+Preços em vigor, tetos da galeria e a configuração x402 completa.
+
+É o número EM VIGOR: leia daqui antes de gastar chamada, em vez de assumir o preço da documentação. Com credencial, também diz se o seu passe de chat está ativo.
+
+- **URL:** `https://gradetv.net/api/billing`
+- **Auth:** `none` — Público, sem credencial.
+
+**Resposta `200`**
+
+Estrutura: `Billing`.
+
+- `provider` (string) — Sempre `x402` — é o único protocolo de cobrança aceito.
+- `mode` (string) — Modo do vendedor: `live` cobra de verdade, `dev` libera sem pagar.
+- `network` (string) — Rede da USDC: `base` em produção, `base-sepolia` em homologação.
+- `chain_id` (int) — Chain ID EVM da rede acima, para a carteira assinar na cadeia certa.
+- `pay_to` (string, pode ser null) — Endereço que recebe o pagamento.
+- `homolog` (bool) — Seam de homologação ligado: dá para fechar o loop sem gastar USDC.
+- `dev` (bool) — Modo de desenvolvimento: o 402 é simulado.
+- `dev_gate` (string, pode ser null) — Como o modo dev é destravado, quando existe.
+- `facilitator` (string) — URL do facilitador que verifica e liquida o pagamento.
+- `asset` (string) — Moeda aceita — sempre `USDC`.
+- `asset_address` (string) — Contrato da USDC na rede acima.
+- `faucet` (string, pode ser null) — Torneira de USDC de teste; só em base-sepolia.
+- `wallets` (object) — Links de carteiras que falam x402 (metamask, coinbase, base_app).
+- `product` (string) — Nome do produto que está cobrando.
+- `prices` (Precos) — Quanto custa cada ação paga, em USD. → ver `Precos` em **Estruturas**.
+- `chat` (Passe) — Seu passe de chat; sem credencial vem inativo. → ver `Passe` em **Estruturas**.
+- `limits` (TetosGaleria) — Quantas pastas, sub-abas e canais cabem. → ver `TetosGaleria` em **Estruturas**.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/billing -H "X-Guest-Token: $IPT"
+```
+
+### `POST /api/contact`
+
+Contato e projetos de produtores: humano usa Turnstile; agente paga $0.10 por x402 ou crédito.
+
+Projetos de produtores: consulte GET /api/producers e use contact.message_template na mensagem. O primeiro envio de agente sai sem espera, após pagamento; depois o backoff é 60s dobrando até 1 hora (`Retry-After`). O valor paga somente o envio do contato, não o serviço de transmissão.
+
+- **URL:** `https://gradetv.net/api/contact`
+- **Auth:** `none` — Público, sem credencial.
+
+**Corpo** (`application/json`)
+
+- `name` (string, obrigatório) — Como chamar quem escreveu.
+- `email` (string, obrigatório) — Para onde responder.
+- `message` (string, obrigatório) — O que você quer dizer.
+- `form_ts` (int, obrigatório) — Início da composição, em milissegundos Unix: entre 2 segundos e 12 horas atrás, obrigatório também para agentes.
+- `cf_turnstile_response` (string) — Token Turnstile do formulário humano; ausente segue pelo pagamento de agente.
+
+**Exemplo de corpo**
+
+```json
+{
+  "name": "…",
+  "email": "a@example.com",
+  "message": "…",
+  "form_ts": 0
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `Ok`.
+
+- `ok` (bool) — Sempre `true` — a falha vem como status 4xx/5xx, não como `ok:false`.
+
+**Erros**
+
+- `400` — Campo obrigatório faltando.
+- `402` — Cota estourada. A resposta traz `accepts[]` (x402, USDC na Base): pague e repita a mesma chamada com `X-PAYMENT`.
+- `403` — Verificação Turnstile inválida.
+- `429` — Backoff de agente: espere o `Retry-After`.
+- `502` — O provedor não aceitou o envio do e-mail; tente novamente mais tarde.
+- `503` — Envio indisponível por configuração de e-mail incompleta.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/contact -H "X-PAYMENT: $PAGAMENTO" -H 'content-type: application/json' -d '{"name":"Agente","email":"a@example.com","message":"[Produtores] Quero apresentar meu projeto","form_ts":'"$(($(date +%s)*1000-5000))"'}'
+```
+
+### `POST /api/visit`
+
+Ping da interface que incrementa a visita do dia. Agente não precisa chamar.
+
+Smoke não conta: `X-MM-Smoke`, User-Agent `mm-smoke` ou `smoke: true` no corpo entram como `counted: false`.
+
+- **URL:** `https://gradetv.net/api/visit`
+- **Auth:** `none` — Público, sem credencial.
+
+**Corpo** (`application/json`)
+
+- `smoke` (bool) — `true` marca a chamada como teste e ela não entra na contagem.
+
+**Exemplo de corpo**
+
+```json
+{
+  "smoke": false
+}
+```
+
+**Resposta `200`**
+
+- `ok` (bool) — Sempre `true`.
+- `counted` (bool) — Se a visita entrou na contagem do dia.
+- `reason` (string, opcional) — Por que não contou, quando `counted` é `false`.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/visit -H 'content-type: application/json' -d '{"smoke":true}'
+```
+
+### `GET /api/metrics`
+
+Métricas dos últimos 7 dias. Com o token do operador, inclui os pagamentos.
+
+Sem credencial devolve visitas, uso e contas. Com `METRICS_TOKEN` em Bearer acrescenta `payments` — e só em Base mainnet, porque número de homologação em painel financeiro engana.
+
+- **URL:** `https://gradetv.net/api/metrics`
+- **Auth:** `none` — Público, sem credencial.
+
+**Headers**
+
+- `Authorization` (string) — `Bearer <METRICS_TOKEN>` para incluir o bloco financeiro.
+
+**Resposta `200`**
+
+Estrutura: `Metricas`.
+
+- `app` (string) — Nome do produto.
+- `today` (string) — Dia de referência (UTC, AAAA-MM-DD).
+- `today_visits` (int) — Visitas contadas hoje.
+- `today_contacts` (int, opcional) — Contatos de hoje; só com `METRICS_TOKEN`.
+- `today_plays` (int) — Plays contados hoje.
+- `today_feeds` (int) — Feeds servidos hoje.
+- `days` (object[]) — Um registro por dia da janela, com as contagens de cada métrica.
+- `usage` (object) — Uso por recurso do produto — aqui, itens na galeria.
+- `accounts` (object) — Total de convidados cadastrados.
+- `top_plays` (object[]) — Canais mais tocados hoje: `channel_id`, `name` e `count`.
+- `financeiro` (object, opcional) — `hoje_usd`, `hoje_count`, `rede`; só com `METRICS_TOKEN`.
+- `payments` (object, opcional) — Resumo financeiro; só com METRICS_TOKEN.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/metrics -H "Authorization: Bearer $METRICS_TOKEN"
+```
+
+## Operação
+
+### `GET /api/admin/catalogo/estado`
+
+Contagens do catálogo no ar e do staging, mais o carimbo da última recarga.
+
+Credencial `CATALOGO_TOKEN`. É o que o serviço de recarga lê antes de começar e depois de trocar, para provar que o catálogo inteiro entrou.
+
+- **URL:** `https://gradetv.net/api/admin/catalogo/estado`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Resposta `200`**
+
+Estrutura: `EstadoCatalogo`.
+
+- `live` (ContagemCatalogo) — O catálogo que está servindo agora. → ver `ContagemCatalogo` em **Estruturas**.
+- `staging` (ContagemCatalogo, pode ser null) — As tabelas `*_novo` da recarga em curso; `null` quando não há staging. → ver `ContagemCatalogo` em **Estruturas**.
+- `meta` (MetaCatalogo) — Carimbos da última recarga e do staging aberto. → ver `MetaCatalogo` em **Estruturas**.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `503` — `CATALOGO_TOKEN` não configurado no Worker: a recarga está desligada.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/admin/catalogo/estado -H "Authorization: Bearer $CATALOGO_TOKEN"
+```
+
+### `GET /api/admin/catalogo/slugs`
+
+Slug publicado de cada canal, paginado por id — a recarga herda para não trocar URL indexada.
+
+Keyset por `id`: repita com `apos` = `next_after` até vir `null`. Sem herdar estes pares, o mesmo canal trocaria de slug a cada recarga.
+
+- **URL:** `https://gradetv.net/api/admin/catalogo/slugs`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Query**
+
+- `apos` (string) — Cursor: devolve só ids maiores que este (o `next_after` da página anterior). Ex.: `GloboRJ.br`.
+- `limit` (int) — Tamanho da página; teto de 5000. Ex.: `5000`.
+
+**Resposta `200`**
+
+Estrutura: `SlugsPublicados`.
+
+- `items` (SlugPublicado[]) — Os pares desta página. → ver `SlugPublicado` em **Estruturas**.
+- `next_after` (string, pode ser null) — Passe em `apos` para a próxima página; `null` quando acabou.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `503` — Recarga desligada (sem `CATALOGO_TOKEN`).
+
+**Exemplo**
+
+```sh
+curl -s "https://gradetv.net/api/admin/catalogo/slugs?limit=5000" -H "Authorization: Bearer $CATALOGO_TOKEN"
+```
+
+### `POST /api/admin/catalogo/inicio`
+
+Abre o staging da recarga: as tabelas `*_novo` nascem vazias e o que sobrou de execução interrompida cai.
+
+Não toca no catálogo que está servindo. Grava `recarga_id` em `catalog_meta.staging_run`; é ele que os lotes e a troca têm que repetir.
+
+- **URL:** `https://gradetv.net/api/admin/catalogo/inicio`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Corpo** (`application/json`)
+
+- `recarga_id` (string, obrigatório) — Identificador desta execução (4–64 de `[A-Za-z0-9._-]`); lote e troca só valem para a recarga que abriu o staging.
+
+**Exemplo de corpo**
+
+```json
+{
+  "recarga_id": "2026-09-02T09-20-00Z"
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `InicioRecarga`.
+
+- `ok` (bool) — Sempre `true`; falha vem como 4xx/5xx.
+- `recarga_id` (string) — O identificador que os lotes e a troca têm que repetir.
+- `staging` (ContagemCatalogo) — As contagens do staging recém-criado (todas zero). → ver `ContagemCatalogo` em **Estruturas**.
+
+**Erros**
+
+- `400` — `recarga_id` ausente ou fora do formato.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/admin/catalogo/inicio -H "Authorization: Bearer $CATALOGO_TOKEN" -H 'content-type: application/json' -d '{"recarga_id":"2026-09-02T09-20-00Z"}'
+```
+
+### `POST /api/admin/catalogo/lote`
+
+Grava até 1000 linhas de UMA tabela no staging, num batch com no máximo 100 parâmetros por statement.
+
+Idempotente nas tabelas com chave (`INSERT OR IGNORE`): reenviar um lote que o cliente não sabe se chegou não vira erro. As colunas são as do `schema.sql`; chave ausente numa linha reprova o lote inteiro.
+
+- **URL:** `https://gradetv.net/api/admin/catalogo/lote`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Corpo** (`application/json`)
+
+- `recarga_id` (string, obrigatório) — Identificador desta execução (4–64 de `[A-Za-z0-9._-]`); lote e troca só valem para a recarga que abriu o staging.
+- `tabela` (string, obrigatório) — Uma de `channels`, `channels_fts`, `streams`, `blocklist`, `facet_countries`, `facet_categories`, `facet_languages`, `facet_subdivisions`, `facet_cities`.
+- `linhas` (object[], obrigatório) — Objetos com as colunas da tabela; coluna faltando entra com o DEFAULT do schema (ou `NULL` se for nula). Teto de 1000 por pedido.
+
+**Exemplo de corpo**
+
+```json
+{
+  "recarga_id": "2026-09-02T09-20-00Z",
+  "tabela": "facet_countries",
+  "linhas": [
+    {
+      "code": "BR",
+      "name": "Brazil"
+    }
+  ]
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `LoteGravado`.
+
+- `ok` (bool) — Sempre `true`; lote recusado vem como 4xx.
+- `tabela` (string) — A tabela em que o lote entrou.
+- `recebidas` (int) — Linhas recebidas no pedido.
+- `gravadas` (int) — Linhas efetivamente inseridas; menor que `recebidas` quando um reenvio repetiu chave.
+
+**Erros**
+
+- `400` — Tabela desconhecida, `linhas` vazia ou linha sem coluna obrigatória (o índice vem na mensagem).
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `409` — O staging aberto pertence a outra `recarga_id`.
+- `413` — Mais de 1000 linhas num pedido.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/admin/catalogo/lote -H "Authorization: Bearer $CATALOGO_TOKEN" -H 'content-type: application/json' -d '{"recarga_id":"2026-09-02T09-20-00Z","tabela":"facet_countries","linhas":[{"code":"BR","name":"Brazil"}]}'
+```
+
+### `POST /api/admin/guia/lote`
+
+Grava o dia de programação de até 500 canais em `guia_dia` (INSERT OR REPLACE).
+
+É o que o grabber do c3 (`services/grade-guia`, iptv-org/epg) manda depois de ler os sites de programação. Mesma credencial da recarga. Um canal por linha; programas fora de ordem são ordenados, sem título ou invertidos caem fora; JSON do canal acima de 64 KB recusa o pedido com o índice.
+
+- **URL:** `https://gradetv.net/api/admin/guia/lote`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Corpo** (`application/json`)
+
+- `day` (string, obrigatório) — Dia grabado, `YYYY-MM-DD`.
+- `canais` (object[], obrigatório) — `{ channel_id, site, programas: [{ inicio, fim, titulo, desc?, categoria? }] }`, instantes ISO 8601. Teto de 500 por pedido.
+
+**Exemplo de corpo**
+
+```json
+{
+  "day": "2026-09-04",
+  "canais": [
+    {
+      "channel_id": "RecordNews.br",
+      "site": "mi.tv",
+      "programas": [
+        {
+          "inicio": "2026-09-04T09:00:00Z",
+          "fim": "2026-09-04T10:00:00Z",
+          "titulo": "Jornal da Record"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `GuiaLoteGravado`.
+
+- `ok` (bool) — Sempre `true`; lote recusado vem como 4xx.
+- `day` (string) — O dia gravado.
+- `gravados` (int) — Canais que entraram (INSERT OR REPLACE: reenviar não duplica).
+
+**Erros**
+
+- `400` — `day` torto, `canais` vazia ou canal inválido (o índice e o motivo vêm na mensagem).
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `413` — Mais de 500 canais num pedido.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/admin/guia/lote -H "Authorization: Bearer $CATALOGO_TOKEN" -H 'content-type: application/json' -d '{"day":"2026-09-04","canais":[{"channel_id":"RecordNews.br","site":"mi.tv","programas":[{"inicio":"2026-09-04T09:00:00Z","fim":"2026-09-04T10:00:00Z","titulo":"Jornal da Record"}]}]}'
+```
+
+### `POST /api/admin/guia/fim`
+
+Registra a fonte `guia` em `catalog_meta.fontes`, ao lado das fontes do catálogo.
+
+Fecha a rodada do grabber: `fetched_at`, `itens` (canais, sites, programas…), `stale`, `ausente`. É o que `GET /api/health` mostra em `sources.guia` (limite de 2 dias) e o que o smoke cobra quando a fonte está fresca.
+
+- **URL:** `https://gradetv.net/api/admin/guia/fim`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Corpo** (`application/json`)
+
+- `registro` (object, obrigatório) — O mesmo formato de `fontes` da troca: `fetched_at`, `sha256` (pode ser nulo), `itens`, `stale`, `ausente`, `motivo`.
+
+**Exemplo de corpo**
+
+```json
+{
+  "registro": {
+    "fetched_at": "2026-09-04T03:20:00Z",
+    "sha256": null,
+    "itens": {
+      "canais": 64,
+      "sites": 2
+    },
+    "stale": false,
+    "ausente": false
+  }
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `GuiaRegistrada`.
+
+- `ok` (bool) — Sempre `true`.
+- `guia` (object) — O registro normalizado: `fetched_at`, `itens`, `stale`, `ausente`…
+
+**Erros**
+
+- `400` — Registro com campo de tipo errado.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/admin/guia/fim -H "Authorization: Bearer $CATALOGO_TOKEN" -H 'content-type: application/json' -d '{"registro":{"fetched_at":"2026-09-04T03:20:00Z","itens":{"canais":64,"sites":2},"stale":false,"ausente":false}}'
+```
+
+### `GET /api/admin/logos/mortas`
+
+Canais de TV cuja origem de logo morreu (o cron já falhou ao buscá-la) e ainda não têm override.
+
+É a lista que `npm run logos:tvlogos` casa com o tv-logos, só por slug exato `[nome]-[cc].png`. Logo de terceiro nunca vai por cima de origem boa.
+
+- **URL:** `https://gradetv.net/api/admin/logos/mortas`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Query**
+
+- `limit` (int) — Quantos canais devolver (teto 5000). Padrão: `2000`.
+
+**Resposta `200`**
+
+Estrutura: `LogosMortas`.
+
+- `items` (object[]) — `{ id, name, alt_names, country, logo_url, fail_count, last_error }` por canal.
+- `limit` (int) — O teto aplicado.
+
+**Erros**
+
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+
+**Exemplo**
+
+```sh
+curl -s "https://gradetv.net/api/admin/logos/mortas?limit=50" -H "Authorization: Bearer $CATALOGO_TOKEN"
+```
+
+### `POST /api/admin/logos/overrides`
+
+Grava overrides de logo (`logo_overrides`, INSERT OR REPLACE): a ficha passa a usar a URL nova e o cron a espelha no R2.
+
+Só https. Sobrevive à recarga (a tabela fica fora da troca). O crédito da fonte sai em `/sobre`.
+
+- **URL:** `https://gradetv.net/api/admin/logos/overrides`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Corpo** (`application/json`)
+
+- `fonte` (string, obrigatório) — Nome da fonte, ex. `tv-logos`.
+- `itens` (object[], obrigatório) — `{ channel_id, url }`; teto de 500 por pedido.
+
+**Exemplo de corpo**
+
+```json
+{
+  "fonte": "tv-logos",
+  "itens": [
+    {
+      "channel_id": "BandNews.br",
+      "url": "https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/brazil/band-news-br.png"
+    }
+  ]
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `OverridesGravados`.
+
+- `ok` (bool) — Sempre `true`; pedido recusado vem como 4xx.
+- `fonte` (string) — A fonte gravada em cada linha.
+- `gravados` (int) — Overrides que entraram (INSERT OR REPLACE).
+
+**Erros**
+
+- `400` — `fonte` torta, lista vazia ou item sem `channel_id`/https (o índice vem na mensagem).
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `413` — Mais de 500 itens.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/admin/logos/overrides -H "Authorization: Bearer $CATALOGO_TOKEN" -H 'content-type: application/json' -d '{"fonte":"tv-logos","itens":[{"channel_id":"BandNews.br","url":"https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/brazil/band-news-br.png"}]}'
+```
+
+### `POST /api/admin/catalogo/troca`
+
+Confere o staging e troca o catálogo inteiro num único batch: ou tudo entra, ou nada muda.
+
+Antes de trocar: contagem por tabela igual a `esperado`, coleira (zero canal, zero stream, zero tocável ou menos da metade do que está no ar recusa), nenhum slug publicado trocado, nenhum stream órfão. A troca derruba as tabelas velhas, renomeia as novas, recria os índices e grava `synced_at` — no mesmo batch.
+
+- **URL:** `https://gradetv.net/api/admin/catalogo/troca`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Corpo** (`application/json`)
+
+- `recarga_id` (string, obrigatório) — Identificador desta execução (4–64 de `[A-Za-z0-9._-]`); lote e troca só valem para a recarga que abriu o staging.
+- `esperado` (object, obrigatório) — Tabela → quantas linhas o cliente mandou (`channels_fts` conta ids distintos). Diferença é lote perdido.
+- `dump_sha256` (string) — SHA-256 do dump da iptv-org que gerou este catálogo; fica em `catalog_meta`.
+- `origem` (string) — Quem recarregou (ex.: `c3/grade-catalogo`), para o relatório guardado.
+
+**Exemplo de corpo**
+
+```json
+{
+  "recarga_id": "2026-09-02T09-20-00Z",
+  "esperado": {
+    "channels": 31000,
+    "channels_fts": 31000,
+    "streams": 17000
+  },
+  "dump_sha256": "…",
+  "origem": "c3/grade-catalogo"
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `RelatorioTroca`.
+
+- `ok` (bool) — Sempre `true`; recusa vem como 409 com `problemas[]`.
+- `recarga_id` (string) — A recarga que entrou no ar.
+- `antes` (ContagemCatalogo, pode ser null) — O catálogo que saiu do ar. → ver `ContagemCatalogo` em **Estruturas**.
+- `depois` (ContagemCatalogo) — O catálogo que está servindo agora. → ver `ContagemCatalogo` em **Estruturas**.
+- `synced_at` (string) — O `synced_at` gravado no mesmo batch da troca.
+
+**Erros**
+
+- `400` — `recarga_id` ou `esperado` ausente.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `409` — `recarga_divergente` (staging de outra execução) ou `staging_invalido` — a resposta lista `problemas[]` e o catálogo no ar não mudou.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/admin/catalogo/troca -H "Authorization: Bearer $CATALOGO_TOKEN" -H 'content-type: application/json' -d '{"recarga_id":"2026-09-02T09-20-00Z","esperado":{"channels":2},"origem":"manual"}'
+```
+
+### `POST /api/admin/catalogo/delta/inicio`
+
+Abre a recarga por diferença: coleira contra o catálogo no ar e a marca da execução.
+
+A mesma coleira da troca, antes de tocar em qualquer linha: zero canal, zero stream, zero tocável ou menos da metade do que está no ar recusa (409, `delta_recusado`). Passou, `recarga_id` fica em `catalog_meta.staging_run` e a sobra de staging de execução interrompida cai.
+
+- **URL:** `https://gradetv.net/api/admin/catalogo/delta/inicio`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Corpo** (`application/json`)
+
+- `recarga_id` (string, obrigatório) — Identificador desta execução (4–64 de `[A-Za-z0-9._-]`); os pedidos seguintes só valem para a recarga que abriu.
+- `esperado` (object, obrigatório) — Tabela → quantas linhas o catálogo INTEIRO terá depois da diferença (`channels_fts` conta ids distintos), mais `playable` (canais de TV tocáveis). É o que o fim confere contra o ar.
+
+**Exemplo de corpo**
+
+```json
+{
+  "recarga_id": "2026-09-05T18-00-00Z",
+  "esperado": {
+    "channels": 93857,
+    "channels_fts": 93857,
+    "streams": 80734,
+    "playable": 9400
+  }
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `DeltaAberto`.
+
+- `ok` (bool) — Sempre `true`; recusa vem como 409 com `problemas[]`.
+- `recarga_id` (string) — A execução aberta — os pedidos seguintes repetem.
+- `live` (ContagemCatalogo) — O catálogo no ar, antes da diferença. → ver `ContagemCatalogo` em **Estruturas**.
+
+**Erros**
+
+- `400` — `recarga_id` fora do formato ou `esperado` ausente.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `409` — `delta_recusado`: a resposta lista `problemas[]` e o catálogo no ar não mudou.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/admin/catalogo/delta/inicio -H "Authorization: Bearer $CATALOGO_TOKEN" -H 'content-type: application/json' -d '{"recarga_id":"2026-09-05T18-00-00Z","esperado":{"channels":93857,"channels_fts":93857,"streams":80734,"playable":9400}}'
+```
+
+### `POST /api/admin/catalogo/delta`
+
+Aplica no catálogo vivo, num batch, até 1000 linhas de UMA tabela: `upsert` entra ou atualiza, `remover` apaga por chave.
+
+`INSERT … ON CONFLICT DO UPDATE` coluna a coluna — menos a chave e o `slug`, que é do produto (URL indexada não muda). Na FTS os ids são apagados e reinseridos. Reenviar é seguro. Ordem é do cliente: `channels` antes de `streams` nas entradas, o inverso nas remoções (FK).
+
+- **URL:** `https://gradetv.net/api/admin/catalogo/delta`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Corpo** (`application/json`)
+
+- `recarga_id` (string, obrigatório) — Identificador desta execução (4–64 de `[A-Za-z0-9._-]`); os pedidos seguintes só valem para a recarga que abriu.
+- `tabela` (string, obrigatório) — Uma de `channels`, `channels_fts`, `streams`, `blocklist`, `facet_countries`, `facet_categories`, `facet_languages`, `facet_subdivisions`, `facet_cities`.
+- `upsert` (object[]) — Linhas com as colunas da tabela; coluna faltando entra com o DEFAULT do schema. Pode ser vazia.
+- `remover` (string[]) — Chaves (`id`, `code` ou `channel_id`, conforme a tabela) a apagar. Pode ser vazia.
+
+**Exemplo de corpo**
+
+```json
+{
+  "recarga_id": "2026-09-05T18-00-00Z",
+  "tabela": "facet_countries",
+  "upsert": [
+    {
+      "code": "BR",
+      "name": "Brazil"
+    }
+  ],
+  "remover": [
+    "XX"
+  ]
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `DeltaAplicado`.
+
+- `ok` (bool) — Sempre `true`; pedido recusado vem como 4xx.
+- `tabela` (string) — A tabela tocada.
+- `recebidas` (int) — Linhas de `upsert` no pedido.
+- `gravadas` (int) — Linhas que entraram ou foram atualizadas (na FTS, contando os ids apagados).
+- `removidas` (int) — Linhas apagadas por `remover`.
+
+**Erros**
+
+- `400` — Tabela desconhecida, listas ausentes ou as duas vazias, linha sem chave, chave inválida.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `409` — `recarga_divergente`: a execução aberta é outra; chame `/delta/inicio`.
+- `413` — Mais de 1000 linhas (`upsert` + `remover`).
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/admin/catalogo/delta -H "Authorization: Bearer $CATALOGO_TOKEN" -H 'content-type: application/json' -d '{"recarga_id":"2026-09-05T18-00-00Z","tabela":"facet_countries","upsert":[{"code":"BR","name":"Brazil"}],"remover":["XX"]}'
+```
+
+### `POST /api/admin/catalogo/delta/fim`
+
+Confere o catálogo inteiro contra `esperado` e grava o carimbo (`synced_at`) — só se bateu.
+
+Contagem por tabela igual a `esperado`, um id na FTS por canal, nenhum stream órfão, nenhum canal sem slug. Diferente disso é 409 (`delta_invalido`) sem carimbo: o serviço apaga o último envio e a próxima recarga é completa. O registro por fonte (`fontes`) e o `dump_sha256` ficam em `catalog_meta`, como na troca.
+
+- **URL:** `https://gradetv.net/api/admin/catalogo/delta/fim`
+- **Auth:** `token` — Token de operador: `METRICS_TOKEN` nas métricas e relatos crus; `CATALOGO_TOKEN` nas rotas `/api/admin/catalogo/*` da recarga (credencial própria do serviço do c3, de menor privilégio).
+
+**Corpo** (`application/json`)
+
+- `recarga_id` (string, obrigatório) — Identificador desta execução (4–64 de `[A-Za-z0-9._-]`); os pedidos seguintes só valem para a recarga que abriu.
+- `esperado` (object, obrigatório) — Tabela → quantas linhas o catálogo INTEIRO terá depois da diferença (`channels_fts` conta ids distintos), mais `playable` (canais de TV tocáveis). É o que o fim confere contra o ar.
+- `dump_sha256` (string) — SHA-256 do dump da iptv-org que gerou este catálogo.
+- `origem` (string) — Quem recarregou (ex.: `c3/grade-catalogo`), para o relatório guardado.
+- `resumo` (object) — Contagens da diferença (`upsert`, `remover`, `refresh`, `iguais`), só para o relatório.
+
+**Exemplo de corpo**
+
+```json
+{
+  "recarga_id": "2026-09-05T18-00-00Z",
+  "esperado": {
+    "channels": 93857,
+    "channels_fts": 93857,
+    "streams": 80734,
+    "playable": 9400
+  },
+  "dump_sha256": "…",
+  "origem": "c3/grade-catalogo",
+  "resumo": {
+    "upsert": 41200,
+    "remover": 310,
+    "refresh": 7000,
+    "iguais": 190000
+  }
+}
+```
+
+**Resposta `200`**
+
+Estrutura: `RelatorioDelta`.
+
+- `ok` (bool) — Sempre `true`; conferência que falha vem como 409 com `problemas[]`.
+- `recarga_id` (string) — A recarga que entrou no ar.
+- `depois` (ContagemCatalogo) — O catálogo que está servindo agora. → ver `ContagemCatalogo` em **Estruturas**.
+- `synced_at` (string) — O `synced_at` gravado no mesmo batch do fechamento.
+
+**Erros**
+
+- `400` — `recarga_id`, `esperado` ou `fontes` inválidos.
+- `401` — Sem credencial ou credencial inválida. Veja a auth deste endpoint.
+- `409` — `recarga_divergente` (outra execução) ou `delta_invalido` — a resposta lista `problemas[]` e o carimbo não foi gravado.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST https://gradetv.net/api/admin/catalogo/delta/fim -H "Authorization: Bearer $CATALOGO_TOKEN" -H 'content-type: application/json' -d '{"recarga_id":"2026-09-05T18-00-00Z","esperado":{"channels":2,"channels_fts":2,"streams":2,"playable":2},"origem":"manual"}'
+```
+
+## Crédito
+
+### `POST /api/credito`
+
+Recarrega crédito pré-pago: paga uma vez com x402 e recebe o token que desconta em qualquer API da casa.
+
+- **URL:** `https://gradetv.net/api/credito`
+- **Auth:** `none` — Público, sem credencial.
+
+**Query**
+
+- `usd` (int, obrigatório) — Pacote: 1, 5, 10 ou 25 dólares.
+
+**Resposta `200`**
+
+- `token` (string) — Token portador do saldo (`cred_…`). Mostrado UMA vez — não há como recuperá-lo.
+- `saldo_usd` (string) — Saldo creditado.
+- `guarde` (string) — Aviso de que o token é o portador do crédito.
+- `usar` (string) — Como apresentar o token nas rotas pagas.
+- `saldo_em` (string) — Onde consultar saldo e extrato.
+
+**Erros**
+
+- `400` — Pacote fora da lista (1, 5, 10 ou 25).
+- `402` — Sem pagamento — o corpo traz `accepts[]` do x402.
+
+**Exemplo**
+
+```sh
+curl -s -XPOST 'https://gradetv.net/api/credito?usd=10'
+```
+
+### `GET /api/credito`
+
+Saldo e extrato do crédito — as últimas movimentações, sem devolver o token.
+
+- **URL:** `https://gradetv.net/api/credito`
+- **Auth:** `credito` — Token de crédito em `Authorization: Bearer cred_…` (ou header `X-Credito`). Não é conta: é portador de saldo.
+
+**Resposta `200`**
+
+- `saldo_micros` (int) — Saldo em micro-dólares (1e-6 USD).
+- `saldo_usd` (string) — Saldo formatado.
+- `criado_em` (string) — Quando o crédito foi aberto.
+- `movimentos` (object[]) — Entradas e saídas recentes, com produto e recurso.
+
+**Erros**
+
+- `401` — Sem token ou token desconhecido.
+
+**Exemplo**
+
+```sh
+curl -s https://gradetv.net/api/credito -H 'Authorization: Bearer cred_…'
+```
+
+## Estruturas
+
+### `Saude`
+
+A resposta de `/api/health`: liveness, o commit publicado e a idade do catálogo.
+
+- `ok` (bool) — Sempre `true` quando o Worker responde.
+- `app` (string) — Nome do produto.
+- `build` (string) — Commit publicado; o CI passa o SHA curto no deploy.
+- `ts` (string) — Momento da resposta (UTC, ISO-8601).
+- `catalog` (FrescorCatalogo) — Idade do catálogo: `synced_at` da última recarga e se passou do limite de 2 dias (o smoke reprova). → ver `FrescorCatalogo` em **Estruturas**.
+- `sources` (object) — Uma entrada por fonte do catálogo, pelo nome (`iptv-org`, o tronco; as demais conforme entram): `fetched_at`, `sha256`, `itens`, `age_hours`, `limit_days`, `stale` (passou do limite ou a recarga usou o snapshot anterior), `ausente` (saiu sem a fonte). Só o tronco velho reprova o smoke.
+
+### `PaginaDeCanais`
+
+A resposta da busca de canais. Não usa o envelope `Pagina<T>` porque troca `api` por `facets` e `filters`.
+
+- `items` (Canal[]) — Os canais desta página, na ordem pedida (`sort`): nome, ou melhor saúde medida primeiro. → ver `Canal` em **Estruturas**.
+- `total` (int) — Canais que casam com o filtro, ignorando a paginação.
+- `limit` (int) — Tamanho de página aplicado (teto de 50).
+- `offset` (int) — Deslocamento aplicado nesta página.
+- `next_offset` (int, pode ser null) — Offset da próxima página; `null` quando acabou.
+- `facets` (FacetasCanal) — Contagem por categoria DENTRO do filtro atual — serve para montar o menu lateral. → ver `FacetasCanal` em **Estruturas**.
+- `filters` (FiltrosCanal) — Os filtros como o servidor os entendeu, já normalizados. → ver `FiltrosCanal` em **Estruturas**.
+
+### `CanalCompleto`
+
+A ficha de um canal: tudo que a busca traz, mais os streams e os links relacionados.
+
+- `id` (string) — ID estável do iptv-org, ex. `Globo.br`. É a chave em toda a API.
+- `name` (string) — Nome de exibição do canal.
+- `alt_names` (string[]) — Outros nomes pelos quais o canal é conhecido.
+- `country` (string, pode ser null) — País de origem, ISO 3166-1 alpha-2.
+- `categories` (string[]) — IDs de categoria do iptv-org, ex. `news`, `sports`.
+- `category_labels` (string[]) — Os mesmos IDs já traduzidos para exibição.
+- `languages` (string[]) — Idiomas do canal, ISO 639-3.
+- `language_labels` (string[]) — Nomes dos idiomas acima, quando conhecidos.
+- `is_nsfw` (bool) — Conteúdo adulto — exige consentimento 18+ para aparecer.
+- `logo_url` (string, pode ser null) — Logo servido por nós (variante ≤256px), não a origem.
+- `website` (string, pode ser null) — Site oficial do canal.
+- `playable_hint` (bool, opcional) — Se a última verificação achou stream utilizável.
+- `slug` (string, pode ser null) — Identificador legível; é id de API, não URL pública.
+- `network` (string, pode ser null) — Rede/emissora a que o canal pertence.
+- `owners` (string[]) — Quem opera o canal, segundo o iptv-org.
+- `launched` (string, pode ser null) — Data de lançamento (AAAA-MM-DD).
+- `replaced_by` (string, pode ser null) — ID do canal que substituiu este, se foi descontinuado.
+- `feed_name` (string, pode ser null) — Nome do feed quando o canal tem mais de um.
+- `feed_format` (string, pode ser null) — Formato do feed declarado pela fonte.
+- `timezones` (string[]) — Fusos em que o canal transmite.
+- `broadcast_area` (string[]) — Área de cobertura, em códigos do iptv-org.
+- `quality` (string, opcional) — Melhor qualidade conhecida, ex. `1080p`.
+- `has_guide` (bool) — Se existe grade de programação (EPG) para este canal.
+- `guide_site` (string, pode ser null) — Site de onde a grade vem.
+- `guide_lang` (string, pode ser null) — Idioma da grade de programação.
+- `subdivision` (string, pode ser null) — Estado/província, código do iptv-org.
+- `city` (string, pode ser null) — Cidade, código do iptv-org.
+- `kind` (string) — `tv` ou `radio` (estação do Radio Browser).
+- `radio` (Radio, opcional) — Só em estação de rádio: tags, votos, cliques, codec, bitrate e localização. → ver `Radio` em **Estruturas**.
+- `origem` (string) — Fonte que trouxe o canal: `iptv-org` (o tronco) ou uma das listas creditadas em `/sobre`.
+- `guide_now` (GuiaAgora, opcional, pode ser null) — Só na ficha: agora e a seguir na programação de hoje, grabada por nós; `null` sem guia fresca. → ver `GuiaAgora` em **Estruturas**.
+- `health_ext` (SaudeMedida, pode ser null) — Saúde medida por terceiro (IPTV Nexus); `null` quando o canal não foi medido. → ver `SaudeMedida` em **Estruturas**.
+- `social` (Social, opcional) — Contadores da comunidade; ausente nas páginas HTML de SEO. → ver `Social` em **Estruturas**.
+- `api` (string) — URL absoluta da ficha deste canal.
+- `streams` (Stream[]) — Transmissões conhecidas, com a URL já apontando para o nosso hop. → ver `Stream` em **Estruturas**.
+- `_links` (LinksCanal) — Esta ficha, a mesma coisa na interface humana e o índice da API. → ver `LinksCanal` em **Estruturas**.
+
+### `SaudeCanal`
+
+Por que um canal falha e para quem — o que separa 'está fora do ar' de 'está bloqueado no seu país'.
+
+- `channel_id` (string) — Canal a que esta saúde se refere.
+- `plays` (int) — Relatos de sucesso, no mundo todo.
+- `fails` (int) — Relatos de falha, no mundo todo.
+- `favorites` (int) — Quantas pessoas favoritaram o canal.
+- `comments` (int) — Comentários públicos no canal.
+- `health` (int, pode ser null) — Percentual de sucesso; `null` com menos de `min_relatos`.
+- `last_ok_at` (string, pode ser null) — Último relato de sucesso (UTC).
+- `last_fail_at` (string, pode ser null) — Último relato de falha (UTC).
+- `last_fail_code` (string, pode ser null) — Código da falha mais recente.
+- `min_relatos` (int) — Quantos relatos são necessários antes de calcular `health`.
+- `reasons` (MotivoFalha[]) — Por que falhou, do motivo mais comum para o menos. → ver `MotivoFalha` em **Estruturas**.
+- `environments` (Ambiente[]) — O mesmo canal por navegador, sistema e país. → ver `Ambiente` em **Estruturas**.
+- `your_environment` (Ambiente) — O recorte de QUEM ESTÁ CHAMANDO, deduzido do User-Agent e da borda. → ver `Ambiente` em **Estruturas**.
+- `regions` (RegiaoSaude[]) — O mesmo canal agregado por PAÍS — onde falha e onde funciona. → ver `RegiaoSaude` em **Estruturas**.
+- `geo` (GeoCanal) — Veredito do bloqueio: geo-restrito (falha numas regiões, funciona noutras) ou fora do ar (falha em todas). → ver `GeoCanal` em **Estruturas**.
+- `latency` (LatenciaPais[]) — Quão rápido a playlist abre, por país — medido no hop `/api/s/:id`. → ver `LatenciaPais` em **Estruturas**.
+- `your_country` (RegiaoSaude) — O recorte do PAÍS de quem está chamando, com a latência da borda dele. → ver `RegiaoSaude` em **Estruturas**.
+- `pra_voce` (string) — Veredito final para quem está chamando: `geo_bloqueado`, `lenta`, `instavel`, `boa` ou `sem_dado`.
+- `codes` (string[]) — Todos os códigos de falha que o produto reconhece.
+- `_links` (LinksSaude) — Esta saúde, o canal e onde relatar. → ver `LinksSaude` em **Estruturas**.
+
+### `GuiaDoDia`
+
+A guia inteira do dia de um canal, grabada por nós (iptv-org/epg no c3).
+
+- `channel_id` (string) — ID do canal no iptv-org.
+- `day` (string) — Dia grabado, YYYY-MM-DD.
+- `site` (string, pode ser null) — Site de programação de origem.
+- `agora` (Programa, pode ser null) — O programa no ar neste instante. → ver `Programa` em **Estruturas**.
+- `a_seguir` (Programa, pode ser null) — O próximo programa. → ver `Programa` em **Estruturas**.
+- `programas` (Programa[]) — Todos os programas do dia, em ordem (até 200). → ver `Programa` em **Estruturas**.
+
+### `Geo`
+
+País e idioma sugeridos pela borda da Cloudflare para quem está chamando.
+
+- `country` (string) — País a usar; cai em `BR` quando a borda não informa.
+- `detected` (string, pode ser null) — O que a borda realmente detectou; `null` se nada.
+- `language` (string) — Idioma a usar; cai em `por` sem detecção.
+- `language_detected` (string, pode ser null) — Idioma realmente detectado.
+- `source` (string) — `cf` quando veio da borda, `fallback` quando é o padrão.
+- `api` (string) — URL absoluta desta rota.
+
+### `Lista<Pais>`
+
+Coleção pequena e completa — faceta de catálogo, que cabe inteira numa resposta.
+
+- `items` (Pais[]) — Todos os itens; estas rotas não paginam. → ver `Pais` em **Estruturas**.
+
+### `Pais`
+
+País com canal tocável no catálogo.
+
+- `code` (string) — ISO 3166-1 alpha-2, ex. `BR`.
+- `name` (string) — Nome do país.
+- `count` (int) — Canais tocáveis deste país.
+- `flag` (string) — URL do SVG da bandeira, servido por nós.
+
+### `Lista<Tag>`
+
+Coleção pequena e completa — faceta de catálogo, que cabe inteira numa resposta.
+
+- `items` (Tag[]) — Todos os itens; estas rotas não paginam. → ver `Tag` em **Estruturas**.
+
+### `Tag`
+
+Tag de estação de rádio, vocabulário livre do Radio Browser, com a contagem no recorte.
+
+- `id` (string) — A tag como está na fonte, em minúsculas (ex. `mpb`).
+- `name` (string) — O mesmo texto, para exibir.
+- `count` (int) — Estações tocáveis com esta tag no recorte pedido.
+
+### `Lista<Categoria>`
+
+Coleção pequena e completa — faceta de catálogo, que cabe inteira numa resposta.
+
+- `items` (Categoria[]) — Todos os itens; estas rotas não paginam. → ver `Categoria` em **Estruturas**.
+
+### `Categoria`
+
+Categoria do vocabulário do iptv-org, sem contagem.
+
+- `id` (string) — ID da categoria, ex. `movies`.
+- `name` (string) — Nome para exibição.
+- `description` (string, pode ser null) — O que a categoria abrange, segundo a fonte.
+- `icon` (string, pode ser null) — Nome do ícone usado na interface.
+
+### `Lista<Idioma>`
+
+Coleção pequena e completa — faceta de catálogo, que cabe inteira numa resposta.
+
+- `items` (Idioma[]) — Todos os itens; estas rotas não paginam. → ver `Idioma` em **Estruturas**.
+
+### `Idioma`
+
+Idioma com canal tocável.
+
+- `code` (string) — ISO 639-3, ex. `por`.
+- `name` (string) — Nome do idioma.
+- `count` (int) — Canais tocáveis neste idioma.
+
+### `Lista<Rede>`
+
+Coleção pequena e completa — faceta de catálogo, que cabe inteira numa resposta.
+
+- `items` (Rede[]) — Todos os itens; estas rotas não paginam. → ver `Rede` em **Estruturas**.
+
+### `Rede`
+
+Rede/emissora com canal tocável.
+
+- `name` (string) — Nome da rede, ex. `Globo`.
+- `count` (int) — Canais tocáveis desta rede.
+
+### `Lista<Qualidade>`
+
+Coleção pequena e completa — faceta de catálogo, que cabe inteira numa resposta.
+
+- `items` (Qualidade[]) — Todos os itens; estas rotas não paginam. → ver `Qualidade` em **Estruturas**.
+
+### `Qualidade`
+
+Qualidade distinta encontrada nos streams.
+
+- `id` (string) — A qualidade em si, ex. `1080p`.
+- `name` (string) — Mesmo valor, para exibição.
+- `count` (int) — Streams nesta qualidade.
+
+### `Lista<Subdivisao>`
+
+Coleção pequena e completa — faceta de catálogo, que cabe inteira numa resposta.
+
+- `items` (Subdivisao[]) — Todos os itens; estas rotas não paginam. → ver `Subdivisao` em **Estruturas**.
+
+### `Subdivisao`
+
+Estado/província com canal tocável.
+
+- `code` (string) — Código do iptv-org, ex. `BR-SP`.
+- `country` (string) — País a que pertence, alpha-2.
+- `name` (string) — Nome da subdivisão.
+- `count` (int) — Canais tocáveis nela.
+
+### `Lista<Cidade>`
+
+Coleção pequena e completa — faceta de catálogo, que cabe inteira numa resposta.
+
+- `items` (Cidade[]) — Todos os itens; estas rotas não paginam. → ver `Cidade` em **Estruturas**.
+
+### `Cidade`
+
+Cidade com canal tocável.
+
+- `code` (string) — Código do iptv-org.
+- `country` (string) — País, alpha-2.
+- `subdivision` (string, pode ser null) — Subdivisão a que a cidade pertence.
+- `name` (string) — Nome da cidade.
+- `count` (int) — Canais tocáveis nela.
+
+### `Chave`
+
+API key do dono, sempre mascarada. O texto completo só aparece na criação.
+
+- `id` (string) — ID da chave, para revogar.
+- `masked` (string) — Prefixo e últimos 4 dígitos, ex. `iptk_…a1b2`.
+- `label` (string, pode ser null) — Rótulo que o dono deu para lembrar onde usou.
+- `revoked` (bool) — Se já foi revogada — a linha fica, para o histórico.
+- `created_at` (string) — Quando foi criada (UTC).
+
+### `Ok`
+
+Confirmação de escrita que não tem corpo próprio a devolver.
+
+- `ok` (bool) — Sempre `true` — a falha vem como status 4xx/5xx, não como `ok:false`.
+
+### `Biblioteca`
+
+A galeria inteira do dono: pastas, sub-abas, canais e as URLs de feed de cada nível.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+
+### `BibliotecaComPasta`
+
+A biblioteca inteira mais os ids da pasta que acabou de ser criada.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+- `id` (string) — ID da pasta criada, `cat_…`.
+- `name` (string) — Nome da pasta criada.
+- `slug` (string) — Slug da pasta — é o que entra na URL do feed dela.
+- `group_id` (string) — ID da sub-aba Geral, criada junto com a pasta.
+
+### `BibliotecaComSubAba`
+
+A biblioteca inteira mais os ids da sub-aba que acabou de ser criada.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+- `id` (string) — ID da sub-aba criada, `grp_…`.
+- `name` (string) — Nome da sub-aba criada.
+- `slug` (string) — Slug da sub-aba — entra na URL do feed dela.
+- `category_id` (string) — Pasta que recebeu a sub-aba.
+
+### `BibliotecaComItem`
+
+A biblioteca inteira mais onde o canal caiu — para a tela abrir na sub-aba certa.
+
+- `owner` (string) — Rótulo derivado do dono desta árvore — estável enquanto o feed for o mesmo, e não reversível. NÃO é o token de convidado: publicá-lo aqui faria uma API key delegada escalar para a credencial mestra, que não tem revogação.
+- `feeds` (Feeds) — Feeds da biblioteca inteira, em quatro formatos. → ver `Feeds` em **Estruturas**.
+- `categories` (PastaBiblioteca[]) — As pastas do dono, na ordem que ele arrumou. → ver `PastaBiblioteca` em **Estruturas**.
+- `id` (string) — ID do item criado, `itm_…`.
+- `group_id` (string) — Sub-aba que recebeu o canal.
+- `category_id` (string) — Pasta a que essa sub-aba pertence.
+
+### `PaginaDeHistorico`
+
+Página do histórico do dono. `max` é o teto de linhas guardadas — passou disso, a mais antiga sai.
+
+- `items` (Visita[]) — Os itens desta página, na ordem que a rota define. → ver `Visita` em **Estruturas**.
+- `total` (int) — Quantos itens casam com o filtro, ignorando a paginação.
+- `limit` (int) — Tamanho de página efetivamente aplicado (pode ser menor que o pedido).
+- `offset` (int) — Deslocamento aplicado nesta página.
+- `next_offset` (int, pode ser null) — Offset da próxima página; `null` quando esta é a última.
+- `api` (string) — URL absoluta desta própria listagem.
+- `max` (int) — Quantos canais o histórico guarda no máximo.
+
+### `Consentimento`
+
+Estado do portão adulto do dono. Sem consentimento válido, canal NSFW responde 403.
+
+- `consented` (bool) — Se o consentimento vale agora, na versão corrente dos termos.
+- `terms_version` (string) — Versão dos termos em vigor hoje.
+- `min_age` (int) — Idade mínima exigida.
+- `confirmed_at` (string, opcional) — Quando o dono aceitou; só aparece com consentimento válido.
+- `accepted_version` (string, opcional) — Versão que ele aceitou; só com consentimento válido.
+- `stale_version` (string, opcional) — Versão antiga aceita, quando os termos mudaram e ele precisa reaceitar.
+
+### `Passe`
+
+Passe mensal — do chat ou de conteúdo adulto. São contas separadas, mesmo formato.
+
+- `active` (bool) — Se o passe vale neste momento.
+- `until` (string, pode ser null) — Até quando vale (UTC); `null` quando não há passe.
+
+### `Social`
+
+Contadores da comunidade sobre um canal, incluindo o recorte do ambiente e do país de quem pediu.
+
+- `plays` (int) — Relatos de que o canal tocou.
+- `fails` (int) — Relatos de que o canal falhou.
+- `favorites` (int) — Quantas pessoas favoritaram — conta pessoas, não cliques.
+- `comments` (int) — Comentários públicos no canal.
+- `last_fail_code` (string, pode ser null) — Código da falha mais recente relatada.
+- `health` (int, pode ser null) — Percentual de sucesso; `null` enquanto houver menos de 3 relatos.
+- `your_plays` (int) — Relatos de sucesso no SEU navegador, sistema e país.
+- `your_fails` (int) — Relatos de falha no seu ambiente — é o que distingue 'fora do ar' de 'bloqueado para você'.
+- `your_fail_code` (string, pode ser null) — Código da última falha no seu ambiente.
+- `your_country_ok` (int) — Relatos de sucesso no SEU país, sem quebrar por navegador/SO.
+- `your_country_fail` (int) — Relatos de falha no seu país.
+- `your_geo_ok` (bool, pode ser null) — `false` = todas as tentativas relatadas no seu país falharam (suspeita de geo-bloqueio); `null` sem relato suficiente.
+- `your_latency_ms` (int, pode ser null) — Latência média da playlist medida no hop, na borda do seu país; `null` sem medição.
+- `your_latency_grade` (string, pode ser null) — `otima`, `boa`, `lenta` ou `ruim`; `null` sem medição.
+
+### `PaginaDeRelatos`
+
+Página de relatos crus. Não tem `total` de propósito: contar a tabela inteira a cada consulta de investigação sai caro e não muda a decisão de quem investiga.
+
+- `items` (Relato[]) — Os relatos, do mais recente para o mais antigo. → ver `Relato` em **Estruturas**.
+- `limit` (int) — Tamanho de página aplicado.
+- `offset` (int) — Deslocamento aplicado.
+- `next_offset` (int, pode ser null) — Offset da próxima página; `null` quando acabou.
+- `retention_days` (int) — Depois de quantos dias a linha é apagada.
+- `filters` (FiltrosRelato) — Os filtros como o servidor os entendeu. → ver `FiltrosRelato` em **Estruturas**.
+- `api` (string) — URL absoluta desta listagem.
+
+### `PaginaDeFavoritos`
+
+Página dos favoritos do dono, com o teto de quantos cabem.
+
+- `items` (Favorito[]) — Os itens desta página, na ordem que a rota define. → ver `Favorito` em **Estruturas**.
+- `total` (int) — Quantos itens casam com o filtro, ignorando a paginação.
+- `limit` (int) — Tamanho de página efetivamente aplicado (pode ser menor que o pedido).
+- `offset` (int) — Deslocamento aplicado nesta página.
+- `next_offset` (int, pode ser null) — Offset da próxima página; `null` quando esta é a última.
+- `api` (string) — URL absoluta desta própria listagem.
+- `max` (int) — Quantos favoritos o dono pode ter.
+
+### `PaginaDeComentarios`
+
+Página de comentários de um canal, com o teto de tamanho de quem for escrever a seguir.
+
+- `items` (Comentario[]) — Os itens desta página, na ordem que a rota define. → ver `Comentario` em **Estruturas**.
+- `total` (int) — Quantos itens casam com o filtro, ignorando a paginação.
+- `limit` (int) — Tamanho de página efetivamente aplicado (pode ser menor que o pedido).
+- `offset` (int) — Deslocamento aplicado nesta página.
+- `next_offset` (int, pode ser null) — Offset da próxima página; `null` quando esta é a última.
+- `api` (string) — URL absoluta desta própria listagem.
+- `channel_id` (string) — Canal a que os comentários pertencem.
+- `max_length` (int) — Tamanho máximo de um comentário novo.
+
+### `Comentario`
+
+Comentário público num canal.
+
+- `id` (string) — ID do comentário, para apagar.
+- `channel_id` (string) — Canal em que o comentário foi escrito.
+- `author` (string) — Apelido de quem escreveu; `Visitante` quando não informado.
+- `body` (string) — O texto do comentário.
+- `created_at` (string) — Quando foi escrito (UTC, com milissegundos).
+- `mine` (bool) — `true` se é seu — só você pode apagar.
+- `api` (string) — URL absoluta deste comentário.
+
+### `MensagemChat`
+
+Mensagem da sala de chat de um canal.
+
+- `id` (string) — ID da mensagem dentro da sala.
+- `autor` (string) — Apelido de quem mandou — estável por dono, gerado se não informado.
+- `body` (string) — O texto da mensagem.
+- `at` (string) — Quando foi mandada (UTC).
+
+### `LinksChat`
+
+Endereços da sala — incluindo o WebSocket, que é o caminho ao vivo.
+
+- `self` (string) — Esta mesma listagem por HTTP.
+- `websocket` (string) — URL `wss://` da sala; mande `{t:'hello',token}` antes de falar.
+- `channel` (string) — Ficha do canal a que a sala pertence.
+
+### `Conta`
+
+A pessoa por trás da sessão.
+
+- `id` (string) — ID da conta.
+- `email` (string) — E-mail confirmado por código.
+
+### `Reivindicacao`
+
+O que o verify achou de convidado já ligado a este e-mail. É o campo que salva a biblioteca de outro aparelho.
+
+- `ok` (bool) — Se havia algo a reivindicar.
+- `product` (ReivindicacaoProduto) — O convidado que a conta já tinha, e o que fazer com ele. → ver `ReivindicacaoProduto` em **Estruturas**.
+
+### `Recursos`
+
+O tamanho da biblioteca do dono — para o agente saber o que vai encontrar antes de buscar.
+
+- `categories` (int) — Quantas pastas o dono tem.
+- `favorites` (int) — Quantos canais ele favoritou.
+- `history` (int) — Quantos canais estão no histórico.
+
+### `Billing`
+
+Tudo que decide se uma chamada vai custar: a configuração x402, os preços do produto, o seu passe e os tetos da galeria.
+
+- `provider` (string) — Sempre `x402` — é o único protocolo de cobrança aceito.
+- `mode` (string) — Modo do vendedor: `live` cobra de verdade, `dev` libera sem pagar.
+- `network` (string) — Rede da USDC: `base` em produção, `base-sepolia` em homologação.
+- `chain_id` (int) — Chain ID EVM da rede acima, para a carteira assinar na cadeia certa.
+- `pay_to` (string, pode ser null) — Endereço que recebe o pagamento.
+- `homolog` (bool) — Seam de homologação ligado: dá para fechar o loop sem gastar USDC.
+- `dev` (bool) — Modo de desenvolvimento: o 402 é simulado.
+- `dev_gate` (string, pode ser null) — Como o modo dev é destravado, quando existe.
+- `facilitator` (string) — URL do facilitador que verifica e liquida o pagamento.
+- `asset` (string) — Moeda aceita — sempre `USDC`.
+- `asset_address` (string) — Contrato da USDC na rede acima.
+- `faucet` (string, pode ser null) — Torneira de USDC de teste; só em base-sepolia.
+- `wallets` (object) — Links de carteiras que falam x402 (metamask, coinbase, base_app).
+- `product` (string) — Nome do produto que está cobrando.
+- `prices` (Precos) — Quanto custa cada ação paga, em USD. → ver `Precos` em **Estruturas**.
+- `chat` (Passe) — Seu passe de chat; sem credencial vem inativo. → ver `Passe` em **Estruturas**.
+- `limits` (TetosGaleria) — Quantas pastas, sub-abas e canais cabem. → ver `TetosGaleria` em **Estruturas**.
+
+### `Metricas`
+
+Painel de 7 dias. O bloco `payments` só aparece com o token do operador e só em Base mainnet.
+
+- `app` (string) — Nome do produto.
+- `today` (string) — Dia de referência (UTC, AAAA-MM-DD).
+- `today_visits` (int) — Visitas contadas hoje.
+- `today_contacts` (int, opcional) — Contatos de hoje; só com `METRICS_TOKEN`.
+- `today_plays` (int) — Plays contados hoje.
+- `today_feeds` (int) — Feeds servidos hoje.
+- `days` (object[]) — Um registro por dia da janela, com as contagens de cada métrica.
+- `usage` (object) — Uso por recurso do produto — aqui, itens na galeria.
+- `accounts` (object) — Total de convidados cadastrados.
+- `top_plays` (object[]) — Canais mais tocados hoje: `channel_id`, `name` e `count`.
+- `financeiro` (object, opcional) — `hoje_usd`, `hoje_count`, `rede`; só com `METRICS_TOKEN`.
+- `payments` (object, opcional) — Resumo financeiro; só com METRICS_TOKEN.
+
+### `EstadoCatalogo`
+
+O retrato que o serviço de recarga lê antes de começar e depois de trocar.
+
+- `live` (ContagemCatalogo) — O catálogo que está servindo agora. → ver `ContagemCatalogo` em **Estruturas**.
+- `staging` (ContagemCatalogo, pode ser null) — As tabelas `*_novo` da recarga em curso; `null` quando não há staging. → ver `ContagemCatalogo` em **Estruturas**.
+- `meta` (MetaCatalogo) — Carimbos da última recarga e do staging aberto. → ver `MetaCatalogo` em **Estruturas**.
+
+### `SlugsPublicados`
+
+Página de slugs publicados, em ordem de id.
+
+- `items` (SlugPublicado[]) — Os pares desta página. → ver `SlugPublicado` em **Estruturas**.
+- `next_after` (string, pode ser null) — Passe em `apos` para a próxima página; `null` quando acabou.
+
+### `InicioRecarga`
+
+Staging aberto e vazio.
+
+- `ok` (bool) — Sempre `true`; falha vem como 4xx/5xx.
+- `recarga_id` (string) — O identificador que os lotes e a troca têm que repetir.
+- `staging` (ContagemCatalogo) — As contagens do staging recém-criado (todas zero). → ver `ContagemCatalogo` em **Estruturas**.
+
+### `LoteGravado`
+
+Resultado de um lote.
+
+- `ok` (bool) — Sempre `true`; lote recusado vem como 4xx.
+- `tabela` (string) — A tabela em que o lote entrou.
+- `recebidas` (int) — Linhas recebidas no pedido.
+- `gravadas` (int) — Linhas efetivamente inseridas; menor que `recebidas` quando um reenvio repetiu chave.
+
+### `GuiaLoteGravado`
+
+Resultado de um lote da guia.
+
+- `ok` (bool) — Sempre `true`; lote recusado vem como 4xx.
+- `day` (string) — O dia gravado.
+- `gravados` (int) — Canais que entraram (INSERT OR REPLACE: reenviar não duplica).
+
+### `GuiaRegistrada`
+
+A fonte `guia` como ficou em `catalog_meta.fontes`.
+
+- `ok` (bool) — Sempre `true`.
+- `guia` (object) — O registro normalizado: `fetched_at`, `itens`, `stale`, `ausente`…
+
+### `LogosMortas`
+
+Canais com origem de logo morta, para o script de overrides casar.
+
+- `items` (object[]) — `{ id, name, alt_names, country, logo_url, fail_count, last_error }` por canal.
+- `limit` (int) — O teto aplicado.
+
+### `OverridesGravados`
+
+Resultado da gravação de overrides de logo.
+
+- `ok` (bool) — Sempre `true`; pedido recusado vem como 4xx.
+- `fonte` (string) — A fonte gravada em cada linha.
+- `gravados` (int) — Overrides que entraram (INSERT OR REPLACE).
+
+### `RelatorioTroca`
+
+A troca aconteceu: contagens de antes e de depois, e o carimbo novo.
+
+- `ok` (bool) — Sempre `true`; recusa vem como 409 com `problemas[]`.
+- `recarga_id` (string) — A recarga que entrou no ar.
+- `antes` (ContagemCatalogo, pode ser null) — O catálogo que saiu do ar. → ver `ContagemCatalogo` em **Estruturas**.
+- `depois` (ContagemCatalogo) — O catálogo que está servindo agora. → ver `ContagemCatalogo` em **Estruturas**.
+- `synced_at` (string) — O `synced_at` gravado no mesmo batch da troca.
+
+### `DeltaAberto`
+
+A recarga por diferença passou pela coleira e está marcada; nada mudou no ar ainda.
+
+- `ok` (bool) — Sempre `true`; recusa vem como 409 com `problemas[]`.
+- `recarga_id` (string) — A execução aberta — os pedidos seguintes repetem.
+- `live` (ContagemCatalogo) — O catálogo no ar, antes da diferença. → ver `ContagemCatalogo` em **Estruturas**.
+
+### `DeltaAplicado`
+
+Um pedido da diferença entrou no catálogo vivo, num batch.
+
+- `ok` (bool) — Sempre `true`; pedido recusado vem como 4xx.
+- `tabela` (string) — A tabela tocada.
+- `recebidas` (int) — Linhas de `upsert` no pedido.
+- `gravadas` (int) — Linhas que entraram ou foram atualizadas (na FTS, contando os ids apagados).
+- `removidas` (int) — Linhas apagadas por `remover`.
+
+### `RelatorioDelta`
+
+A diferença fechou: o catálogo inteiro bateu com `esperado` e o carimbo foi gravado.
+
+- `ok` (bool) — Sempre `true`; conferência que falha vem como 409 com `problemas[]`.
+- `recarga_id` (string) — A recarga que entrou no ar.
+- `depois` (ContagemCatalogo) — O catálogo que está servindo agora. → ver `ContagemCatalogo` em **Estruturas**.
+- `synced_at` (string) — O `synced_at` gravado no mesmo batch do fechamento.
+
+### `FrescorCatalogo`
+
+Idade do catálogo, como sai em `/api/health`.
+
+- `synced_at` (string, pode ser null) — Instante (ISO-8601) da última recarga que entrou no ar; `null` se nunca.
+- `age_hours` (int, pode ser null) — Horas inteiras desde `synced_at`; `null` sem carimbo.
+- `stale` (bool) — `true` quando passou de `limit_days` — o cron avisa por e-mail e o smoke reprova.
+- `limit_days` (int) — O limite em dias (2).
+
+### `Canal`
+
+Um canal do catálogo público (fonte iptv-org), do jeito que a busca e a ficha devolvem.
+
+- `id` (string) — ID estável do iptv-org, ex. `Globo.br`. É a chave em toda a API.
+- `name` (string) — Nome de exibição do canal.
+- `alt_names` (string[]) — Outros nomes pelos quais o canal é conhecido.
+- `country` (string, pode ser null) — País de origem, ISO 3166-1 alpha-2.
+- `categories` (string[]) — IDs de categoria do iptv-org, ex. `news`, `sports`.
+- `category_labels` (string[]) — Os mesmos IDs já traduzidos para exibição.
+- `languages` (string[]) — Idiomas do canal, ISO 639-3.
+- `language_labels` (string[]) — Nomes dos idiomas acima, quando conhecidos.
+- `is_nsfw` (bool) — Conteúdo adulto — exige consentimento 18+ para aparecer.
+- `logo_url` (string, pode ser null) — Logo servido por nós (variante ≤256px), não a origem.
+- `website` (string, pode ser null) — Site oficial do canal.
+- `playable_hint` (bool, opcional) — Se a última verificação achou stream utilizável.
+- `slug` (string, pode ser null) — Identificador legível; é id de API, não URL pública.
+- `network` (string, pode ser null) — Rede/emissora a que o canal pertence.
+- `owners` (string[]) — Quem opera o canal, segundo o iptv-org.
+- `launched` (string, pode ser null) — Data de lançamento (AAAA-MM-DD).
+- `replaced_by` (string, pode ser null) — ID do canal que substituiu este, se foi descontinuado.
+- `feed_name` (string, pode ser null) — Nome do feed quando o canal tem mais de um.
+- `feed_format` (string, pode ser null) — Formato do feed declarado pela fonte.
+- `timezones` (string[]) — Fusos em que o canal transmite.
+- `broadcast_area` (string[]) — Área de cobertura, em códigos do iptv-org.
+- `quality` (string, opcional) — Melhor qualidade conhecida, ex. `1080p`.
+- `has_guide` (bool) — Se existe grade de programação (EPG) para este canal.
+- `guide_site` (string, pode ser null) — Site de onde a grade vem.
+- `guide_lang` (string, pode ser null) — Idioma da grade de programação.
+- `subdivision` (string, pode ser null) — Estado/província, código do iptv-org.
+- `city` (string, pode ser null) — Cidade, código do iptv-org.
+- `kind` (string) — `tv` ou `radio` (estação do Radio Browser).
+- `radio` (Radio, opcional) — Só em estação de rádio: tags, votos, cliques, codec, bitrate e localização. → ver `Radio` em **Estruturas**.
+- `origem` (string) — Fonte que trouxe o canal: `iptv-org` (o tronco) ou uma das listas creditadas em `/sobre`.
+- `guide_now` (GuiaAgora, opcional, pode ser null) — Só na ficha: agora e a seguir na programação de hoje, grabada por nós; `null` sem guia fresca. → ver `GuiaAgora` em **Estruturas**.
+- `health_ext` (SaudeMedida, pode ser null) — Saúde medida por terceiro (IPTV Nexus); `null` quando o canal não foi medido. → ver `SaudeMedida` em **Estruturas**.
+- `social` (Social, opcional) — Contadores da comunidade; ausente nas páginas HTML de SEO. → ver `Social` em **Estruturas**.
+- `api` (string) — URL absoluta da ficha deste canal.
+
+### `FacetasCanal`
+
+Recortes da busca atual. Hoje só categoria; o formato aceita mais sem quebrar cliente.
+
+- `categories` (FacetaCategoria[]) — Categorias presentes no resultado, com a contagem de cada uma. → ver `FacetaCategoria` em **Estruturas**.
+
+### `FiltrosCanal`
+
+O que o servidor entendeu do que você mandou — útil para saber por que um filtro não pegou.
+
+- `q` (string, pode ser null) — Busca textual aplicada.
+- `country` (string, pode ser null) — País aplicado, já em maiúsculas.
+- `category` (string, pode ser null) — Categoria aplicada.
+- `language` (string, pode ser null) — Idioma aplicado, já normalizado para ISO 639-3.
+- `network` (string, pode ser null) — Rede aplicada.
+- `quality` (string, pode ser null) — Qualidade aplicada.
+- `guide` (bool) — Se o filtro de grade de programação estava ligado.
+- `subdivision` (string, pode ser null) — Subdivisão aplicada.
+- `city` (string, pode ser null) — Cidade aplicada.
+- `nsfw` (bool) — Se o conteúdo adulto foi incluído.
+- `playable` (bool) — Se só canal com stream utilizável entrou.
+- `sort` (string) — Ordem aplicada: `name`, `score` (saúde medida por terceiro) ou `votes` (rádio).
+- `online` (bool) — Se só canal visto online pela fonte nas 48 h anteriores à última recarga entrou.
+- `kind` (string) — `tv`, `radio` ou `all` — sem `kind` na chamada, é `tv`.
+- `tag` (string, pode ser null) — Tag de rádio aplicada.
+
+### `Radio`
+
+O que só uma estação de rádio tem (Radio Browser). Vem em `Canal.radio` quando `kind` é `radio`.
+
+- `tags` (string[]) — Tags da estação, vocabulário livre da fonte.
+- `votes` (int) — Votos da comunidade do Radio Browser.
+- `clicks` (int) — Cliques contados pelo Radio Browser.
+- `codec` (string, pode ser null) — Codec do stream (`MP3`, `AAC+`…), quando a fonte sabe.
+- `bitrate` (int, pode ser null) — Bitrate em kbps, quando a fonte sabe.
+- `geo` (object, pode ser null) — `{ lat, lon }` da estação, quando a fonte tem; senão `null`.
+
+### `GuiaAgora`
+
+Resumo da guia do dia que a ficha carrega: o programa de agora e o próximo.
+
+- `day` (string) — Dia grabado, YYYY-MM-DD (UTC do grabber).
+- `site` (string, pode ser null) — Site de programação de onde a grade veio (ex. `mi.tv`).
+- `agora` (Programa, pode ser null) — O programa no ar neste instante; `null` fora da grade. → ver `Programa` em **Estruturas**.
+- `a_seguir` (Programa, pode ser null) — O próximo programa; `null` no fim da grade. → ver `Programa` em **Estruturas**.
+
+### `SaudeMedida`
+
+Saúde do canal medida por terceiro (IPTV Nexus, que sonda cada stream do iptv-org duas vezes por dia). É o melhor stream medido; `null` quando ninguém mediu — não medido não é ruim.
+
+- `score` (int, pode ser null) — 0–100, média móvel das sondagens do melhor stream do canal.
+- `online` (bool) — Algum stream do canal respondeu `online` numa sondagem das 48 h anteriores à última recarga do catálogo (rádio: o checker do Radio Browser).
+- `checked_at` (string, pode ser null) — Instante (ISO-8601) da sondagem mais recente gravada; a recarga só o regrava quando algo mais do canal mudou ou a cada 7 dias, então pode estar até uma semana atrás da sondagem real.
+
+### `Stream`
+
+Uma das transmissões de um canal. A `url` já é o hop nosso, não a origem.
+
+- `id` (string) — ID do stream; é o `:id` de `GET /api/s/:id`.
+- `feed` (string, pode ser null) — Qual feed do canal este stream serve.
+- `title` (string, pode ser null) — Título do stream, quando a fonte declara.
+- `url` (string) — URL de reprodução no nosso hop — conta o play (uma vez por pessoa, canal e dia) e devolve a playlist.
+- `quality` (string, pode ser null) — Qualidade declarada deste stream.
+- `needs_headers` (bool) — Se a origem exige Referer/User-Agent — o hop cuida disso.
+- `label` (string, pode ser null) — Rótulo curto para escolher entre streams.
+- `scheme` (string) — Esquema da URL de origem: `http`, `https`, ou `youtube` (transmissão no YouTube, tocável só pelo player do site, nunca pelo M3U).
+- `kind` (string) — Como tocar: `hls`, `dash`, `ts`, `flv`, `audio` (rádio contínua), `youtube` (player oficial embutido) ou `externo` (RTMP/RTSP).
+- `youtube` (Youtube, opcional) — Só em stream do YouTube: ids e as URLs de embed e de assistir. → ver `Youtube` em **Estruturas**.
+- `playable_hint` (bool) — Se a última verificação achou este stream utilizável.
+- `origem` (string) — Fonte que trouxe este stream: `iptv-org` ou uma das listas creditadas em `/sobre`.
+- `health_ext` (SaudeMedidaStream, pode ser null) — A sondagem mais recente deste stream pelo IPTV Nexus; `null` quando não foi medido. → ver `SaudeMedidaStream` em **Estruturas**.
+
+### `LinksCanal`
+
+URLs relacionadas, para o agente não montar caminho na mão.
+
+- `self` (string) — Esta mesma ficha em JSON.
+- `app` (string) — A mesma coisa na interface humana.
+- `api_index` (string) — Índice auto-descrito da API.
+
+### `MotivoFalha`
+
+Um motivo de falha agregado, já com o texto que a interface mostra.
+
+- `code` (string) — Código: `cors`, `geo`, `sumiu`, `codec`, `playlist`, `sem_resposta`, `protocolo`, `sem_stream`, `outro`.
+- `label` (string) — O motivo em uma frase curta.
+- `hint` (string) — O que a pessoa pode fazer a respeito.
+- `count` (int) — Quantos relatos trouxeram este código.
+- `last_at` (string, pode ser null) — Relato mais recente com este código (UTC).
+
+### `Ambiente`
+
+O comportamento do canal num navegador, sistema e país específicos.
+
+- `browser` (string) — Navegador normalizado, ex. `Chrome`; `Outro` quando não dá para dizer.
+- `os` (string) — Sistema normalizado, ex. `Android`.
+- `country` (string) — País de quem relatou, alpha-2.
+- `label` (string) — Os três acima numa frase, para exibir.
+- `plays` (int) — Relatos de sucesso neste ambiente.
+- `fails` (int) — Relatos de falha neste ambiente.
+- `health` (int, pode ser null) — Percentual de sucesso aqui; `null` sem relato bastante.
+- `last_fail_code` (string, pode ser null) — Código da última falha neste ambiente.
+- `last_at` (string, pode ser null) — Relato mais recente neste ambiente (UTC).
+
+### `RegiaoSaude`
+
+O comportamento do canal num país — sem quebrar por navegador/SO.
+
+- `country` (string) — País, alpha-2; `ZZ` quando a borda não disse.
+- `plays` (int) — Relatos de sucesso neste país.
+- `fails` (int) — Relatos de falha neste país.
+- `health` (int, pode ser null) — Percentual de sucesso aqui; `null` sem relato bastante.
+- `latency_ms` (int, pode ser null) — Latência média da playlist medida na borda deste país; só em `your_country`.
+- `latency_grade` (string, pode ser null) — Nota da latência: `otima`, `boa`, `lenta` ou `ruim`; só em `your_country`.
+
+### `GeoCanal`
+
+O que separa 'está bloqueado onde eu moro' de 'saiu do ar para todo mundo'.
+
+- `tipo` (string) — `geo` (falha numa região, funciona noutra), `down` (falha em toda região medida), `ok` ou `unknown` (sem relato suficiente).
+- `bloqueado_em` (string[]) — Regiões onde só há relato de falha (teto de 8; `ZZ` = país desconhecido).
+- `funciona_em` (string[]) — Países com pelo menos um sucesso (teto de 8).
+- `label` (string) — O veredito em uma frase; vazio quando não há o que dizer.
+
+### `LatenciaPais`
+
+Quanto tempo a playlist leva para abrir, medido na borda do país — a Grade busca a origem por você, então sabe.
+
+- `country` (string) — País onde a medição aconteceu, alpha-2.
+- `samples` (int) — Quantas aberturas entraram na média.
+- `avg_ms` (int) — Tempo médio até a playlist chegar, em milissegundos.
+- `grade` (string) — `otima` (<600ms), `boa` (<1500ms), `lenta` (<3500ms) ou `ruim`.
+- `grade_label` (string) — A nota em uma palavra, para exibir.
+- `last_at` (string, pode ser null) — Última medição (UTC).
+
+### `LinksSaude`
+
+Endereços relacionados ao painel de saúde.
+
+- `self` (string) — Este mesmo painel.
+- `channel` (string) — Ficha do canal.
+- `report` (string) — Onde mandar um relato novo.
+
+### `Programa`
+
+Um programa da grade do dia, com os instantes em ISO 8601 (UTC).
+
+- `inicio` (string) — Começo do programa, ISO 8601.
+- `fim` (string) — Fim do programa, ISO 8601.
+- `titulo` (string) — Título como o site da programação escreve.
+- `desc` (string, opcional) — Sinopse curta (até 300 caracteres).
+- `categoria` (string, opcional) — Categoria do site, quando ele dá.
+
+### `Feeds`
+
+O mesmo conteúdo em quatro formatos. São URLs públicas, com o token do feed no caminho — quem tem o link tem o conteúdo.
+
+- `m3u` (string) — Playlist M3U — é o que se cola no VLC.
+- `m3u8` (string) — Mesma playlist, extensão `.m3u8` para players que só aceitam ela.
+- `json` (string) — Mesma lista em JSON, para quem programa em cima.
+- `xspf` (string) — Mesma lista em XSPF, para players que preferem XML.
+
+### `PastaBiblioteca`
+
+Pasta (aba principal) da galeria do dono.
+
+- `id` (string) — ID da pasta, `cat_…`.
+- `name` (string) — Nome que o dono deu.
+- `slug` (string) — Versão do nome usada na URL do feed.
+- `sort` (int) — Posição na ordenação do dono.
+- `last_group_id` (string, pode ser null) — Sub-aba aberta por último — é o que devolve a pessoa ao lugar onde parou.
+- `api` (string) — URL absoluta desta pasta.
+- `feeds` (Feeds) — Feeds só desta pasta. → ver `Feeds` em **Estruturas**.
+- `groups` (SubAba[]) — Sub-abas dentro da pasta. → ver `SubAba` em **Estruturas**.
+
+### `Visita`
+
+Um canal no histórico do dono, com quantas vezes ele assistiu.
+
+- `channel_id` (string) — ID do canal assistido.
+- `name` (string) — Nome do canal; cai no ID se ele saiu do catálogo.
+- `country` (string, pode ser null) — País do canal.
+- `logo_url` (string, pode ser null) — Logo servido por nós.
+- `is_nsfw` (bool) — Conteúdo adulto — some da lista sem consentimento 18+.
+- `playable_hint` (bool) — Se a última verificação achou stream utilizável.
+- `plays` (int) — Quantas vezes o dono assistiu este canal.
+- `first_at` (string) — Primeira vez que assistiu (UTC).
+- `last_at` (string) — Última vez que assistiu (UTC).
+- `stale` (bool) — `true` quando o canal não existe mais no catálogo.
+- `api` (string) — URL absoluta da ficha do canal.
+
+### `Relato`
+
+Relato cru de reprodução, com endereço — por isso a rota é só de operador e a linha expira.
+
+- `channel_id` (string) — Canal que a pessoa tentou assistir.
+- `ok` (bool) — Se tocou (`true`) ou falhou (`false`).
+- `code` (string, pode ser null) — Código da falha, quando falhou.
+- `ip` (string, pode ser null) — Endereço de quem relatou. Nunca aparece no painel público.
+- `browser` (string, pode ser null) — Navegador deduzido do User-Agent.
+- `os` (string, pode ser null) — Sistema deduzido do User-Agent.
+- `country` (string, pode ser null) — País deduzido pela borda.
+- `day` (string) — Dia do relato (AAAA-MM-DD) — a contagem é uma por dono, canal e dia.
+- `at` (string) — Momento exato do relato (UTC).
+
+### `FiltrosRelato`
+
+O que o servidor entendeu do filtro de relatos.
+
+- `channel_id` (string, pode ser null) — Canal filtrado, ou `null` para todos.
+- `only_failures` (bool) — Se só as falhas entraram.
+
+### `Favorito`
+
+Um canal favoritado pelo dono.
+
+- `channel_id` (string) — ID do canal favoritado.
+- `name` (string) — Nome do canal; cai no ID se ele saiu do catálogo.
+- `country` (string, pode ser null) — País do canal.
+- `quality` (string, pode ser null) — Melhor qualidade conhecida.
+- `logo_url` (string, pode ser null) — Logo servido por nós.
+- `is_nsfw` (bool) — Conteúdo adulto — some da lista sem consentimento 18+.
+- `playable_hint` (bool) — Se a última verificação achou stream utilizável.
+- `favorites` (int) — Quantas pessoas favoritaram este canal ao todo.
+- `created_at` (string) — Quando o dono favoritou (UTC).
+- `stale` (bool) — `true` quando o canal não existe mais no catálogo.
+- `api` (string) — URL absoluta da ficha do canal.
+
+### `ReivindicacaoProduto`
+
+Qual convidado usar depois de entrar — o novo ou o que já existia.
+
+- `guest_token` (string) — O convidado ANTIGO da conta. É este que tem a biblioteca.
+- `adopt` (bool) — `true` quer dizer: jogue fora o convidado local e passe a usar o de cima.
+- `resources` (Recursos) — O que existe nesse convidado antigo. → ver `Recursos` em **Estruturas**.
+
+### `Precos`
+
+Preços em vigor, em dólar. Leia daqui, não da documentação.
+
+- `contact_agent_usd` (number) — Custo de um contato de agente.
+- `chat_month_usd` (number) — Custo do passe de chat por 30 dias.
+
+### `TetosGaleria`
+
+Os limites da galeria pessoal — existem para o catálogo público não ser despejado numa biblioteca.
+
+- `categories` (int) — Pastas por dono.
+- `groups_per_category` (int) — Sub-abas por pasta.
+- `items_per_group` (int) — Canais por sub-aba.
+
+### `ContagemCatalogo`
+
+Quantas linhas cada tabela do catálogo tem — no ar ou no staging.
+
+- `channels` (int) — Canais (linhas de `channels`).
+- `channels_fts` (int) — Linhas do índice de busca (`channels_fts`).
+- `channels_fts_ids` (int) — Ids distintos no índice de busca; a troca exige que seja igual a `channels`.
+- `streams` (int) — Streams (linhas de `streams`).
+- `blocklist` (int) — Canais bloqueados (DMCA), que ficam fora do catálogo.
+- `facet_countries` (int) — Países na faceta.
+- `facet_categories` (int) — Categorias na faceta.
+- `facet_languages` (int) — Idiomas na faceta (ISO 639-3 inteiro).
+- `facet_subdivisions` (int) — Estados e subdivisões na faceta.
+- `facet_cities` (int) — Cidades na faceta.
+
+### `MetaCatalogo`
+
+Os carimbos da recarga, lidos de `catalog_meta`.
+
+- `synced_at` (string, pode ser null) — Instante (ISO-8601) da última troca bem-sucedida; é o que `/api/health` compara com o limite de 2 dias.
+- `applied_at` (string, pode ser null) — Instante em que o catálogo novo entrou no ar.
+- `dump_sha256` (string, pode ser null) — SHA-256 do dump da iptv-org que gerou o catálogo no ar.
+- `staging_run` (string, pode ser null) — `recarga_id` da execução com staging aberto agora; `null` sem staging.
+
+### `SlugPublicado`
+
+O par que a recarga herda: id estável da iptv-org → slug já publicado.
+
+- `id` (string) — Id do canal na iptv-org (ex.: `GloboRJ.br`).
+- `slug` (string) — Slug publicado; a troca recusa staging em que este id venha com outro.
+
+### `FacetaCategoria`
+
+Categoria com a contagem dentro da busca que acabou de ser feita.
+
+- `id` (string) — ID da categoria no iptv-org, ex. `news`.
+- `name` (string) — Nome da categoria para exibição.
+- `count` (int) — Canais desta categoria dentro do filtro atual.
+- `icon` (string, pode ser null) — Nome do ícone usado na interface.
+
+### `Youtube`
+
+Um stream que é uma live do YouTube: o player embute o oficial; M3U/XSPF não o levam.
+
+- `video` (string, opcional) — Id do vídeo da live (11 caracteres), quando a fonte deu um vídeo.
+- `channel` (string, opcional) — Id do canal (`UC…`), quando a fonte deu o canal: o embed abre a live corrente.
+- `embed` (string) — URL do embed oficial sem cookies (`youtube-nocookie.com`).
+- `assistir` (string) — URL para abrir no YouTube (botão do player e destino do hop).
+
+### `SaudeMedidaStream`
+
+A sondagem mais recente deste stream pelo IPTV Nexus; `null` quando o stream não foi medido.
+
+- `status` (string) — `online`, `offline`, `blocked` (geo), `timeout`, `error` ou `unknown`.
+- `score` (int, pode ser null) — 0–100, média móvel: uma falha só não derruba o stream.
+- `checked_at` (string, pode ser null) — Instante (ISO-8601) da sondagem gravada; regravado quando o status ou o score mudam, ou a cada 7 dias.
+- `resolution` (string, pode ser null) — Resolução vista pelo ffprobe, ex. `1080p`.
+- `bitrate` (int, pode ser null) — Bitrate em bits por segundo, quando medido.
+- `latency_ms` (int, pode ser null) — Tempo até o primeiro byte na sondagem, em ms.
+
+### `SubAba`
+
+Sub-aba dentro de uma pasta; é o nível que agrupa os canais.
+
+- `id` (string) — ID da sub-aba, `grp_…`.
+- `name` (string) — Nome que o dono deu.
+- `slug` (string) — Versão do nome usada na URL do feed.
+- `sort` (int) — Posição na ordenação dentro da pasta.
+- `last_item_id` (string, pode ser null) — Último canal tocado nesta sub-aba.
+- `api` (string) — URL absoluta desta sub-aba.
+- `feeds` (Feeds) — Feeds só desta sub-aba. → ver `Feeds` em **Estruturas**.
+- `items` (ItemBiblioteca[]) — Canais colocados aqui, na ordem do dono. → ver `ItemBiblioteca` em **Estruturas**.
+
+### `ItemBiblioteca`
+
+Um canal dentro de uma sub-aba, com o stream já escolhido.
+
+- `id` (string) — ID do item na biblioteca, `itm_…`.
+- `channel_id` (string) — ID do canal no catálogo, ex. `Globo.br`.
+- `stream_id` (string, pode ser null) — Stream escolhido para este item.
+- `name` (string) — Nome do canal; cai no `channel_id` se o canal sumiu do catálogo.
+- `logo_url` (string, pode ser null) — Logo servido por nós.
+- `url` (string, pode ser null) — URL de reprodução no hop; `null` quando o stream sumiu.
+- `quality` (string, pode ser null) — Qualidade do stream escolhido.
+- `kind` (string) — Tipo de mídia: `hls`, `mpd`, `mp4`…
+- `playable_hint` (bool) — Se a última verificação achou o stream utilizável.
+- `stale` (bool) — `true` quando o canal ou o stream sumiu da fonte — o item fica, sem tocar.
+- `sort` (int) — Posição dentro da sub-aba.
+
+
+## Cota
+
+- Grátis: catálogo, busca e facets (`GET /api/channels`) — sem cota.
+- Grátis: galeria pessoal, pastas e feeds M3U/JSON/XSPF — sem cota por convidado.
+- Grátis: ler chat, comentários e saúde de canal — sem cota.
+- Pago: escrever no chat (30 dias) — **$0.10** USDC via x402.
+- Pago: conteúdo adulto (30 dias, além do consentimento 18+) — **$0.10** USDC via x402.
+- Pago: contato de agente — **$0.10** USDC via x402.
+
+Rota paga responde **402** com `accepts[]` (x402, USDC na Base). Pague e repita a mesma chamada com `X-PAYMENT`.
+
+Números em vigor: https://gradetv.net/api/billing
+
+## MCP
+
+- **Endpoint:** `POST https://gradetv.net/mcp` — Streamable HTTP, JSON-RPC 2.0.
+- Cada tool é uma chamada nesta mesma API; a credencial vai no header e é repassada.
