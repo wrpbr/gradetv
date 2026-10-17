@@ -1,0 +1,16 @@
+{
+  "name": "gradetv",
+  "description": "Find public TV and radio channels with measured stream health, TV guides and personal M3U feeds through a remote MCP server.",
+  "owner": {
+    "name": "GradeTV",
+    "email": "contato@gradetv.net",
+    "url": "https://gradetv.net"
+  },
+  "plugins": [
+    {
+      "name": "gradetv",
+      "source": "./",
+      "category": "data"
+    }
+  ]
+}

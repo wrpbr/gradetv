@@ -1,0 +1,14 @@
+{
+  "name": "gradetv",
+  "displayName": "Grade TV",
+  "version": "1.0.1",
+  "description": "Find public TV and radio channels with measured stream health, TV guides and personal M3U feeds through a remote MCP server.",
+  "author": { "name": "GradeTV", "email": "contato@gradetv.net", "url": "https://gradetv.net" },
+  "homepage": "https://gradetv.net",
+  "repository": "https://github.com/wrpbr/gradetv",
+  "license": "MIT-0",
+  "keywords": ["mcp", "tv", "radio", "iptv", "m3u", "tv-guide"],
+  "icon": "./assets/icon.png",
+  "documentationUrl": "https://gradetv.net/developers",
+  "supportUrl": "https://github.com/wrpbr/gradetv/issues"
+}

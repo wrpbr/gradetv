@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gradetv": {
+      "type": "http",
+      "url": "https://gradetv.net/mcp?checkout=site"
+    }
+  }
+}
