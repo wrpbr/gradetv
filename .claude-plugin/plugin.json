@@ -1,7 +1,7 @@
 {
   "name": "gradetv",
   "displayName": "Grade TV",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Find public TV and radio channels with measured stream health, TV guides and personal M3U feeds through a remote MCP server.",
   "author": { "name": "GradeTV", "email": "contato@gradetv.net", "url": "https://gradetv.net" },
   "homepage": "https://gradetv.net",

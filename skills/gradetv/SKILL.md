@@ -6,8 +6,24 @@ license: MIT-0
 
 # GradeTV
 
-Connect to `https://gradetv.net/mcp?checkout=site` with Streamable HTTP.
+Connect to `https://gradetv.net/mcp` with Streamable HTTP for free and paid API services.
+Directory clients use `https://gradetv.net/mcp?checkout=site`: purchase tools and x402 are disabled there.
 Read `https://gradetv.net/llms.txt` for the current API contract.
+
+## Free and paid services
+
+Channel search, a day's stored schedule and the personal library are free.
+The per-call schedule tools return up to seven days and are paid from the first call:
+`get_api_x402_programacao_by_slug` and `get_api_x402_programacao_by_slug_by_dia`.
+Chat and TV passes have separate prices and terms. Read `tools/list`,
+`https://gradetv.net/api/pricing` and `https://gradetv.net/api/billing` before use.
+Payment does not grant audiovisual rights.
+
+Direct MCP returns x402 PaymentRequired in `structuredContent` with `isError: true`.
+Require explicit spending authority and a budget before retrying with `params._meta["x402/payment"]`.
+For HTTP, use `PAYMENT-SIGNATURE`; prepaid credit uses `X-Credito: cred_…`.
+For site purchases, open `https://gradetv.net/pricing`; use Pix or card only when offered.
+Never send card details through MCP. In ChatGPT, use existing rights without offers or purchases in the app.
 
 ## MCP tools
 
