@@ -6,9 +6,21 @@ license: MIT-0
 
 # GradeTV
 
-MCP tools: `list_programacao`, `get_programacao_dia`, `get_api_x402_programacao_by_slug`.
+MCP tools: `list_programacao`, `get_programacao_dia`, `get_api_x402_programacao_by_slug`, `list_tags`, `list_languages`, `search_channels`, `channel_health`, `play_reports`, `list_favorites`.
 
 Use the collected schedules instead of maintaining an EPG collection process.
+
+## Everyday requests
+
+Use this skill for TV schedules, channel discovery and observed playback problems.
+Reuse the channel and day from context. Confirm timezone and resolve the returned channel slug.
+Keep searches bounded. Do not invent missing programmes or bypass media restrictions.
+
+- "What is on TV Brasil tonight?" Resolve the channel with `list_programacao` and read `get_programacao_dia`.
+- "Build this channel's schedule for the next few days." Compare free daily reads with the quoted multi-day response.
+- "Find Portuguese-language news channels for my list." Resolve tags and language, then use `search_channels`.
+- "Is this channel having playback problems?" Read dated `channel_health` and `play_reports`.
+- "Show today's schedules for my favorite channels." Read authorized `list_favorites` and the available daily schedules.
 
 ## First request
 
