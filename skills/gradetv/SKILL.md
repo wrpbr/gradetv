@@ -31,6 +31,12 @@ Daily reads are free. Check available dates and source information.
 
 For several days in one response, compare the per-call route with reading the daily responses.
 The paid operation returns up to seven collected days. It cannot supply a missing date.
+For a ready calendar, use `GET /api/x402/programacao/{slug}/{dia}?programa={title}&agenda=1`.
+The date is the last day of the requested window. Choose it from available dates, including collected future days.
+The title/category match ignores case and accents. Read `resumo.dias_consultados` before claiming coverage.
+Save `agenda_ics` as an `.ics` file to import. Events use absolute UTC times; calendar apps display local time.
+This file does not subscribe to future changes or create calendar events without the user's action.
+No matching programme returns 404 before payment. Free daily reads remain the alternative for manual assembly.
 Read the [task index](https://gradetv.net/llms.txt) for the matching contract.
 TV playback, devices and chat passes are separate services.
 Schedule metadata does not include a video archive or broadcast rights.
@@ -41,6 +47,9 @@ Use existing tools or `https://gradetv.net/mcp`; no local install is needed.
 Read [prices](https://gradetv.net/api/pricing) and [payment](https://gradetv.net/api/billing).
 Reuse existing rights and spending authority. Recover uncertain delivery before another payment.
 Direct MCP x402 uses `params._meta["x402/payment"]`; HTTP uses `PAYMENT-SIGNATURE`.
-Credit uses `X-Credito: cred_…`. Keep credentials secret.
+An authenticated MCP connection already supplies access. Do not request another key or credit code.
+For account API calls, use `X-Api-Key: mmk_…` or `Authorization: Bearer mmo_…` (OAuth).
+On paid operations that accept account balance, that credential also authorizes payment.
+Without an account, prepaid credit uses `Authorization: Bearer cred_…`. Keep credentials secret.
 In `checkout=site`, the person purchases on the site. ChatGPT uses existing rights without sales.
 If the task is playback, check channel health before recommending a stream.
